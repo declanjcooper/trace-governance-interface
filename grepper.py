@@ -3,7 +3,7 @@ import zipfile
 import json
 
 # Configure the Streamlit page layout
-st.set_page_config(page_title="TRACE Container Validator", layout="centered")
+st.set_page_config(page_title="XML Grepper", layout="centered")
 
 st.title("TRACE Container Validator")
 st.markdown("""
