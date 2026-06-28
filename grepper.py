@@ -6,22 +6,33 @@ from typing import Dict, Any, List, Tuple
 # ==========================================
 # --- CONFIGURATION LAYER ---
 # ==========================================
-APP_TITLE = "Chestnut TRACE Container Validator"
+APP_TITLE = "Chestnut TRACE Container Validator (Whitelist Mode)"
 MAX_CONTEXT_CHARS = 1000
 
-# Using sets for O(1) membership lookups
-MUST_HAVE_TARGETS = {
+# The Deterministic Baseline (Whitelist)
+# Only these structural components are authorized to exist.
+AUTHORIZED_EXACT = {
+    "[Content_Types].xml",
+    "_rels/.rels",
+    "word/_rels/document.xml.rels",
     "word/document.xml",
+    "word/styles.xml",
+    "word/fontTable.xml",
+    "word/settings.xml",
+    "word/theme/theme1.xml",
+    "word/numbering.xml",
     "docProps/core.xml",
-    "_rels/.rels"
+    "docProps/app.xml",
+    "docProps/custom.xml"
 }
 
-MUST_NOT_HAVE_TARGETS = {
-    "word/comments.xml",
-    "word/footnotes.xml",
-    "word/endnotes.xml",
-    "word/revisions.xml"
-}
+# Dynamic files (like headers, footers, and custom XML bindings)
+# that belong to the presentation/structural baseline.
+AUTHORIZED_PREFIXES = (
+    "word/header",
+    "word/footer",
+    "customXml/"
+)
 
 
 # ==========================================
@@ -29,21 +40,23 @@ MUST_NOT_HAVE_TARGETS = {
 # ==========================================
 def extract_text_context(zip_ref: zipfile.ZipFile, filename: str, max_chars: int = MAX_CONTEXT_CHARS) -> str:
     """
-    Parses XML structure to strip tags and returns normalized, human-readable text.
+    Parses XML structure to strip all presentation tags.
+    Projects only the raw, unformatted text for human review (the COI).
     """
     try:
         raw_bytes = zip_ref.read(filename)
         root = ET.fromstring(raw_bytes)
 
-        # Extract and normalize text spacing
+        # Strip the XML structure, leaving only the raw data
         text_content = " ".join(root.itertext())
         text_content = " ".join(text_content.split())
 
+        # Accurate reporting
         if not text_content:
-            return "[No readable text content found]"
+            return "[File exists in container, but contains no extractable text]"
 
         if len(text_content) > max_chars:
-            return f"{text_content[:max_chars]}... [Truncated at {max_chars} characters]"
+            return f"{text_content[:max_chars]}... \n\n[TRUNCATED FOR REVIEW: Limit {max_chars} chars]"
 
         return text_content
 
@@ -58,56 +71,42 @@ def extract_text_context(zip_ref: zipfile.ZipFile, filename: str, max_chars: int
 # ==========================================
 def validate_container(uploaded_file) -> Tuple[str, Dict[str, Any], List[Dict[str, Any]]]:
     """
-    Executes structural validation against defined constraints.
+    Executes structural validation using a strict Default-Deny Whitelist.
     Returns the verdict, standard output payload, and failure list.
     """
     with zipfile.ZipFile(uploaded_file) as z:
-        # Cast to set for faster membership checking
         all_files = set(z.namelist())
 
-        must_have_results = {}
-        must_not_have_results = {}
+        baseline_results = {}
         failures = []
 
-        # Validate Required Targets
-        for target in MUST_HAVE_TARGETS:
-            is_present = target in all_files
-            must_have_results[target] = is_present
+        # Validate against the Strict Whitelist
+        for target in all_files:
+            # Check if the file is part of the authorized SSOT
+            is_authorized = target in AUTHORIZED_EXACT or target.startswith(AUTHORIZED_PREFIXES)
+            baseline_results[target] = is_authorized
 
-            if not is_present:
-                failures.append({
-                    "failure_id": "ERR_MISSING_REQUIRED",
-                    "target": target,
-                    "description": "Required structural file is missing.",
-                    "context": None
-                })
+            if not is_authorized:
+                # If it is not explicitly authorized, it is an offender by default.
+                extracted_coi = extract_text_context(z, target)
 
-        # Validate Prohibited Targets
-        for target in MUST_NOT_HAVE_TARGETS:
-            is_present = target in all_files
-            must_not_have_results[target] = is_present
-
-            if is_present:
                 failures.append({
                     "failure_id": "ERR_UNAUTHORIZED_CONTENT",
                     "target": target,
-                    "description": "Container contamination detected.",
-                    "context": extract_text_context(z, target)
+                    "description": "Unrecognized structural file detected. Extracted for human review.",
+                    "context": extracted_coi
                 })
 
-        # Evaluate constraints
-        passed_must_have = all(must_have_results.values())
-        passed_must_not_have = not any(must_not_have_results.values())
-        verdict = "PASS" if (passed_must_have and passed_must_not_have) else "FAIL"
+        # Evaluate constraints: If any file in the container was unauthorized, the container fails.
+        verdict = "PASS" if all(baseline_results.values()) else "FAIL"
 
         # Construct payload
         output_payload = {
             "filename": uploaded_file.name,
             "verdict": verdict,
-            "must_have": must_have_results,
-            "must_not_have": must_not_have_results,
+            "baseline_validation": baseline_results,
             "failures": failures,
-            "all_files": list(all_files) # Converted back to list for JSON serialization
+            "all_files": list(all_files)
         }
 
         return verdict, output_payload, failures
@@ -117,11 +116,11 @@ def validate_container(uploaded_file) -> Tuple[str, Dict[str, Any], List[Dict[st
 # --- PRESENTATION LAYER (UI) ---
 # ==========================================
 def main():
-    st.set_page_config(page_title="XML Grepper", layout="centered")
+    st.set_page_config(page_title="TRACE Grepper", layout="centered")
     st.title(APP_TITLE)
     st.markdown(
-        "This utility executes a structural validation check on `.docx` containers to "
-        "establish a deterministic baseline before data extraction."
+        "This utility executes a structural validation check on `.docx` containers using a **strict whitelist**. "
+        "Any file not explicitly required for text rendering is isolated, extracted, and flattened for review."
     )
 
     uploaded_file = st.file_uploader("Upload a .docx container file", type=["docx"])
@@ -134,9 +133,9 @@ def main():
             # Render Results Panel
             st.subheader("Validation Result")
             if verdict == "PASS":
-                st.success(f"Result: {verdict}")
+                st.success(f"Result: {verdict} — Container matches the authorized baseline.")
             else:
-                st.error(f"Result: {verdict} — {len(failures)} issue(s) detected.")
+                st.error(f"Result: {verdict} — {len(failures)} unauthorized target(s) detected.")
 
                 for f in failures:
                     st.warning(f"**{f['failure_id']}**: `{f['target']}`")
