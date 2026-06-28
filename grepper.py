@@ -6,10 +6,10 @@ from typing import Dict, Any, List, Tuple
 # ==========================================
 # --- CONFIGURATION LAYER ---
 # ==========================================
-APP_TITLE = "Chestnut TRACE Container Validator (Whitelist Mode)"
+APP_TITLE = "Chestnut TRACE Container Validator (Test Mode)"
 MAX_CONTEXT_CHARS = 1000
 
-# The Deterministic Baseline (Whitelist)
+# The Deterministic Baseline ()
 # Only these structural components are authorized to exist.
 AUTHORIZED_EXACT = {
     "[Content_Types].xml",
@@ -41,9 +41,14 @@ AUTHORIZED_PREFIXES = (
 def extract_text_context(zip_ref: zipfile.ZipFile, filename: str, max_chars: int = MAX_CONTEXT_CHARS) -> str:
     """
     Parses XML structure to strip all presentation tags.
-    Projects only the raw, unformatted text for human review (the COI).
+    If the file is a non-XML binary, it safely bypasses parsing and reports the file footprint.
     """
     try:
+        # The Sniff Test: Only parse if it claims to be XML or a relationship map
+        if not filename.endswith(('.xml', '.rels')):
+            file_info = zip_ref.getinfo(filename)
+            return f"[Non-XML Binary Detected: {file_info.file_size} bytes. Extraction bypassed to preserve isolation.]"
+
         raw_bytes = zip_ref.read(filename)
         root = ET.fromstring(raw_bytes)
 
@@ -61,7 +66,7 @@ def extract_text_context(zip_ref: zipfile.ZipFile, filename: str, max_chars: int
         return text_content
 
     except ET.ParseError:
-        return "[Error: Target is not valid XML or could not be parsed]"
+        return "[Error: Target structure is corrupted and could not be parsed as valid XML]"
     except Exception as e:
         return f"[Error extracting content: {str(e)}]"
 
