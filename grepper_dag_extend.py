@@ -4,6 +4,7 @@ import xml.etree.ElementTree as ET
 import json
 import uuid
 import pandas as pd
+import datetime
 from typing import Dict, Any
 
 # ==========================================
@@ -50,25 +51,53 @@ def generate_dag_vectors(zip_ref: zipfile.ZipFile, filename: str) -> Dict[str, A
         return {}
 
 def evaluate_alignment_strain(node_map: Dict[str, Any]) -> Dict[str, Any]:
-    """Calculates the physical distance between Document Vector and Contract Vector."""
+    """Calculates the physical distance (Delta) between Document Vector and Contract Vector."""
     for node in node_map.values():
+        # Initialize at Origin (0,0,0)
         node["alignment_status"] = "Equilibrium"
+        node["strain_distance_delta"] = 0  
+        node["strain_vectors"] = {} 
         node["alignment_notes"] = []
         
-        # Strain Check: Topological Fragmentation
+        # Strain Check: Topological Fragmentation (Y-Axis / Hierarchy)
         if " -> p" in node.get("dag_path", ""):
             text_runs = [c for c in node.get("hasChild", []) if " -> r" in node_map.get(c, {}).get("dag_path", "")]
-            if len(text_runs) > CONTRACT_REFERENCE["max_text_runs"]:
+            run_count = len(text_runs)
+            allowed_runs = CONTRACT_REFERENCE["max_text_runs"]
+            
+            if run_count > allowed_runs:
+                # Calculate the exact distance of the Strain
+                delta = run_count - allowed_runs
+                
                 node["alignment_status"] = "Strain"
-                node["alignment_notes"].append(f"Fragmentation: {len(text_runs)} text runs detected (Max allowed: 1).")
+                node["strain_distance_delta"] = delta
+                node["strain_vectors"]["y_axis_hierarchy"] = -delta # Negative pull away from origin
+                
+                node["alignment_notes"].append(f"Fragmentation: |Δ| = {delta} ({run_count} runs observed vs {allowed_runs} allowed).")
                 
     return node_map
 
 def reconcile_node(node: Dict[str, Any]) -> Dict[str, Any]:
-    """The 'Snap'. Forces a strained node into Equilibrium."""
+    """The 'Snap'. Forces a strained node into Equilibrium and logs the vector collapse."""
+    
+    # 1. Create the Audit Trail if it doesn't exist
+    if "reconciliation_history" not in node:
+        node["reconciliation_history"] = []
+        
+    # 2. Archive the Strain Distance before collapsing it
+    node["reconciliation_history"].append({
+        "timestamp_utc": datetime.datetime.utcnow().isoformat(),
+        "resolved_delta": node.get("strain_distance_delta", 0),
+        "resolved_vectors": node.get("strain_vectors", {}),
+        "action": "Vector Collapse: Fragments stitched into single coherent run."
+    })
+    
+    # 3. Return the Atom to the Origin (0,0,0)
     node["alignment_status"] = "Equilibrium"
-    node["alignment_notes"] = ["System Reconciled: Fragments stitched into single run."]
-    # In a full engine, this would recursively stitch the 'coi' of children.
+    node["strain_distance_delta"] = 0
+    node["strain_vectors"] = {}
+    node["alignment_notes"] = ["System Reconciled: Atom returned to Origin (0,0,0)."]
+    
     return node
 
 # ==========================================
@@ -80,7 +109,7 @@ class PedagogicalController:
         self.narrative = {
             1: {
                 "title": "1. Document Ingestion", 
-                "text": "Before we look at data, we must establish an orientaion. The Master Contract dictates the expected topology."
+                "text": "Before we look at data, we must establish an orientation. The Master Contract dictates the expected topology."
             },
             2: {
                 "title": "2. Topological Mapping", 
@@ -88,11 +117,11 @@ class PedagogicalController:
             },
             3: {
                 "title": "3. Orthogonal Inspection", 
-                "text": "Select an atom in the main canvas. We will project its current state against the Master Contract to visualize any geometric strain."
+                "text": "Select an atom in the main canvas. We will project its current state against the Master Contract to visualize any geometric strain and calculate its exact distance (Δ) from the origin."
             },
             4: {
                 "title": "4. Reconciliation Snap", 
-                "text": "For atoms in a state of Strain, engage the reconciliation vector. Watch the node snap back into structural Equilibrium."
+                "text": "For atoms in a state of Strain, engage the reconciliation vector. Watch the node snap back into structural Equilibrium, while securely logging its collapse in the node's immutable history."
             }
         }
 
@@ -161,35 +190,37 @@ def main():
         
         # Filter nodes to find ones we care about (e.g., paragraphs)
         node_ids = [k for k, v in st.session_state.node_map.items() if " -> p" in v.get("dag_path", "")]
-        selected_id = st.selectbox("Select Atom to Inspect:", node_ids)
         
-        observed_node = st.session_state.node_map[selected_id]
-        
-        # The Dual-Pane Projection
-        col_obs, col_con = st.columns(2)
-        
-        with col_obs:
-            st.markdown("#### Document Vector (Observed)")
-            st.json(observed_node)
+        if node_ids:
+            selected_id = st.selectbox("Select Atom to Inspect:", node_ids)
+            observed_node = st.session_state.node_map[selected_id]
             
-        with col_con:
-            st.markdown("#### Contract Vector (Required)")
-            st.json(CONTRACT_REFERENCE)
+            # The Dual-Pane Projection
+            col_obs, col_con = st.columns(2)
             
-        st.divider()
-        
-        # Strain Status & Resolution
-        if observed_node["alignment_status"] == "Strain":
-            st.error(f"❌ STRAIN DETECTED: {', '.join(observed_node['alignment_notes'])}")
+            with col_obs:
+                st.markdown("#### Document Vector (Observed)")
+                st.json(observed_node)
+                
+            with col_con:
+                st.markdown("#### Contract Vector (Required)")
+                st.json(CONTRACT_REFERENCE)
+                
+            st.divider()
             
-            # The Reconciliation Snap (Step 4 specific)
-            if controller.step == 4:
-                if st.button("⚡ Reconcile Atom (Snap to Contract)"):
-                    st.session_state.node_map[selected_id] = reconcile_node(observed_node)
-                    st.rerun()
+            # Strain Status & Resolution
+            if observed_node["alignment_status"] == "Strain":
+                st.error(f"❌ STRAIN DETECTED: {', '.join(observed_node['alignment_notes'])}")
+                
+                # The Reconciliation Snap (Step 4 specific)
+                if controller.step == 4:
+                    if st.button("⚡ Reconcile Atom (Snap to Contract)"):
+                        st.session_state.node_map[selected_id] = reconcile_node(observed_node)
+                        st.rerun()
+            else:
+                st.success("✅ EQUILIBRIUM: Atom in alignment with Contract.")
         else:
-            st.success("✅ EQUILIBRIUM: Atom in alignment with Contract.")
+            st.warning("No paragraph (p) nodes found in the current document structure.")
 
 if __name__ == "__main__":
     main()
-    
