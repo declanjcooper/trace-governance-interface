@@ -10,7 +10,7 @@ from typing import Dict, Any
 # --- TOPOLOGICAL ALIGNMENT CORE ---
 # ==========================================
 
-# Master Contract (eCRF Overlay / Tuning Pegs)
+# Master Contract (eCRF_plate Overlay / Tuning Pegs)
 CONTRACT_REFERENCE = {
     "target_node": "p",
     "required_properties": ["coi", "hasChild"],
@@ -79,12 +79,12 @@ class PedagogicalController:
         self.step = 1
         self.narrative = {
             1: {
-                "title": "1. Contract Ingestion", 
-                "text": "Before we look at data, we must establish the laws of physics for this document. The Master Contract (eCRF) dictates the expected topology."
+                "title": "1. Document Ingestion", 
+                "text": "Before we look at data, we must establish an orientaion. The Master Contract (eCRF_plate) dictates the expected topology."
             },
             2: {
                 "title": "2. Topological Mapping", 
-                "text": "Upload a .docx file. The engine will strip away the visual noise and map the raw XML into a deterministic DAG path."
+                "text": "Upload a .docx file. The engine will strip away the visual noise (specific to a word processor/desktop interfaces) and map the raw XML into a deterministic DAG path."
             },
             3: {
                 "title": "3. Orthogonal Inspection", 
