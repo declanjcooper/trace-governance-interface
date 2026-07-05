@@ -3,6 +3,7 @@ import zipfile
 import xml.etree.ElementTree as ET
 import uuid
 import datetime
+import time
 from typing import Dict, Any
 
 # ==========================================
@@ -67,7 +68,11 @@ def evaluate_alignment_strain(node_map: Dict[str, Any]) -> Dict[str, Any]:
                 
     return node_map
 
-def reconcile_node(node: Dict[str, Any]) -> Dict[str, Any]:
+def reconcile_node(node_id: str, node_map: Dict[str, Any]) -> Dict[str, Any]:
+    """The 'Snap'. Stitches child fragments and logs the vector collapse."""
+    node = node_map[node_id]
+    
+    # 1. Archive the Strain Distance
     if "reconciliation_history" not in node:
         node["reconciliation_history"] = []
         
@@ -78,12 +83,25 @@ def reconcile_node(node: Dict[str, Any]) -> Dict[str, Any]:
         "action": "Vector Collapse: Fragments stitched into single coherent run."
     })
     
+    # 2. THE STITCH: Extract and concatenate child fragments
+    child_runs = [c for c in node.get("hasChild", []) if " -> r" in node_map.get(c, {}).get("dag_path", "")]
+    stitched_text = ""
+    
+    for r_id in child_runs:
+        r_node = node_map.get(r_id, {})
+        if r_node.get("coi"):
+            stitched_text += r_node["coi"] + " "
+            
+    # Update the parent node's payload
+    node["coi"] = stitched_text.strip() if stitched_text else "[STITCHED PAYLOAD RECOVERED FROM FRAGMENTS]"
+    
+    # 3. Return the Atom to Equilibrium
     node["alignment_status"] = "Equilibrium"
     node["strain_distance_delta"] = 0
     node["strain_vectors"] = {}
     node["alignment_notes"] = ["System Reconciled: Atom returned to Origin (0,0,0)."]
     
-    return node
+    return node_map
 
 # ==========================================
 # --- PEDAGOGICAL CONTROLLER ---
@@ -179,17 +197,4 @@ def main():
             if observed_node["alignment_status"] == "Strain":
                 st.error(f"❌ STRAIN DETECTED: {', '.join(observed_node['alignment_notes'])}")
                 
-                if controller.step == 4:
-                    if st.button("⚡ Reconcile Atom (Snap to Contract)"):
-                        st.session_state.node_map[selected_id] = reconcile_node(observed_node)
-                        st.rerun()
-            else:
-                st.success("✅ EQUILIBRIUM: Atom in alignment with Contract.")
-        else:
-            if filter_option == "Action Required (Strain Only)":
-                st.success("🏆 Inbox Zero: No nodes are currently in a state of Strain. The document is aligned.")
-            else:
-                st.warning("No target nodes found in the current document structure.")
-
-if __name__ == "__main__":
-    main()
+                #
