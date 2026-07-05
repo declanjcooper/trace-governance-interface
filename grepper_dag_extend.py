@@ -7,7 +7,7 @@ import pandas as pd
 from typing import Dict, Any, List, Tuple
 
 # ==========================================
-# --- CORE ENGINE v2.1 ---
+# --- TOPOLOGICAL ALIGNMENT CORE v2.2 ---
 # ==========================================
 TRACE_CONTEXT = {
     "trace": "https://schema.chestnut-architecture.dev/trace/v2#",
@@ -29,7 +29,7 @@ def generate_dag_vectors(zip_ref: zipfile.ZipFile, filename: str) -> Tuple[Dict[
         tag_name = node.tag.split('}')[-1]
         new_path = current_path + [tag_name]
 
-        # Log anomalies
+        # Log anomalies in the structure
         if tag_name not in ['body', 'p', 'r', 't', 'tbl', 'tr', 'tc', 'document', 'pPr', 'rPr', 'b', 'bCs', 'sectPr', 'pgSz', 'pgMar', 'cols', 'docGrid']:
             exceptions.append(f"Anomalous Tag: {tag_name} at {'->'.join(new_path)}")
 
@@ -55,28 +55,28 @@ def generate_dag_vectors(zip_ref: zipfile.ZipFile, filename: str) -> Tuple[Dict[
     traverse(root, ["Root"], None)
     return node_map, exceptions
 
-def calculate_strain(node_map: Dict[str, Any]) -> Dict[str, Any]:
+def evaluate_alignment_strain(node_map: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Contract Physics Engine: Analyzes node_map for Compliance Equilibrium vs Strain.
+    Contract Physics Engine: Evaluates data alignment against compliance vectors.
     """
     for node_id, node in node_map.items():
-        node["status"] = "Equilibrium"
-        node["strain_notes"] = []
+        node["alignment_status"] = "Equilibrium"
+        node["alignment_notes"] = []
 
-        # 1. Strain Check: Fragmentation (Text Run Atomization)
-        # If a paragraph (p) has > 1 text run (r), it's fragmented.
+        # 1. Alignment Check: Topological Fragmentation
+        # If a paragraph (p) contains multiple text runs, it indicates a lack of semantic atomization.
         if " -> p" in node.get("dag_path", ""):
             text_runs = [c for c in node.get("hasChild", []) if " -> r" in node_map.get(c, {}).get("dag_path", "")]
             if len(text_runs) > 1:
-                node["status"] = "Strain"
-                node["strain_notes"].append(f"Fragmentation: {len(text_runs)} nodes.")
+                node["alignment_status"] = "Strain"
+                node["alignment_notes"].append(f"Fragmentation: {len(text_runs)} text runs detected.")
 
-        # 2. Strain Check: Style Violation (Direct Formatting)
-        # If run properties (rPr) contains 'b' (bold), tag as unauthorized style.
+        # 2. Alignment Check: Governance Contract Violation
+        # If run properties (rPr) contains 'b' (bold), it violates the master style contract.
         if " -> rPr" in node.get("dag_path", ""):
             if any(" -> b" in node_map.get(c, {}).get("dag_path", "") for c in node.get("hasChild", [])):
-                node["status"] = "Strain"
-                node["strain_notes"].append("Contract Violation: Unauthorized Bold.")
+                node["alignment_status"] = "Strain"
+                node["alignment_notes"].append("Contract Violation: Unauthorized Direct Formatting.")
                 
     return node_map
 
@@ -84,9 +84,9 @@ def calculate_strain(node_map: Dict[str, Any]) -> Dict[str, Any]:
 # --- PRESENTATION LAYER ---
 # ==========================================
 def main():
-    st.set_page_config(page_title="Chestnut Compiler", layout="wide")
-    st.title("Chestnut TRACE Compiler")
-    st.markdown("### Disambiguation & Contract Physics Observation Station")
+    st.set_page_config(page_title="Chestnut Alignment Core", layout="wide")
+    st.title("Chestnut Topological Alignment Core")
+    st.markdown("### Deterministic Alignment & Contract Physics Observation")
 
     uploaded_file = st.file_uploader("Upload .docx for Deterministic Archive", type=["docx"])
 
@@ -95,34 +95,34 @@ def main():
             # 1. Ingestion / Atomization
             node_map, exceptions = generate_dag_vectors(z, "word/document.xml")
             
-            # 2. Contract Physics Engine
-            node_map = calculate_strain(node_map)
+            # 2. Alignment Evaluation
+            node_map = evaluate_alignment_strain(node_map)
 
             # --- UI Interrogation ---
             st.subheader("Interrogation Station")
             col1, col2 = st.columns([1, 2])
-            search_path = col1.text_input("Grep Path (e.g., 'tbl')", "")
+            search_path = col1.text_input("Grep Coordinate Path (e.g., 'body -> p')", "")
 
-            # --- Strain Observation UI ---
+            # --- Alignment Observation UI ---
             st.subheader("Observability: Equilibrium vs. Strain")
             
-            # DataFrame preparation
+            # Prepare DataFrame
             df_data = []
             for n in node_map.values():
                 df_data.append({
                     "ID": n["@id"], 
                     "Path": n["dag_path"], 
-                    "Status": n["status"], 
-                    "Notes": "; ".join(n["strain_notes"]) if n["strain_notes"] else "None"
+                    "Status": n["alignment_status"], 
+                    "Notes": "; ".join(n["alignment_notes"]) if n["alignment_notes"] else "None"
                 })
             
             df = pd.DataFrame(df_data)
 
-            # Conditional formatting
+            # Conditional formatting for "Strain"
             def highlight_status(s):
                 return ['background-color: #ffcccc' if x == 'Strain' else 'background-color: #ccffcc' for x in s]
 
-            # Filter logic
+            # Filtering logic
             if search_path:
                 df = df[df['Path'].str.contains(search_path, na=False)]
             
