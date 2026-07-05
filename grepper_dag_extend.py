@@ -80,7 +80,7 @@ class PedagogicalController:
         self.narrative = {
             1: {
                 "title": "1. Document Ingestion", 
-                "text": "Before we look at data, we must establish an orientaion. The Master Contract (eCRF_plate) dictates the expected topology."
+                "text": "Before we look at data, we must establish an orientaion. The Master Contract dictates the expected topology."
             },
             2: {
                 "title": "2. Topological Mapping", 
