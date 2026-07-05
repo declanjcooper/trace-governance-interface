@@ -188,7 +188,7 @@ def main():
                     st.session_state.node_map[selected_id] = reconcile_node(observed_node)
                     st.rerun()
         else:
-            st.success("✅ EQUILIBRIUM: Atom aligns perfectly with Contract.")
+            st.success("✅ EQUILIBRIUM: Atom in alignment with Contract.")
 
 if __name__ == "__main__":
     main()
