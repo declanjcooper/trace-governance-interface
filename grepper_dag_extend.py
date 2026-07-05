@@ -7,6 +7,19 @@ import time
 from typing import Dict, Any
 
 # ==========================================
+# --- STREAMLIT LIFECYCLE INITIALIZATION ---
+# ==========================================
+# MUST be at the absolute top of the global scope to prevent lifecycle errors.
+st.set_page_config(page_title="Chestnut Alignment Core", layout="wide", initial_sidebar_state="expanded")
+
+def trigger_rerun():
+    """Environment-safe rerun handler."""
+    if hasattr(st, "rerun"):
+        st.rerun()
+    else:
+        st.experimental_rerun()
+
+# ==========================================
 # --- TOPOLOGICAL ALIGNMENT CORE ---
 # ==========================================
 
@@ -72,7 +85,6 @@ def reconcile_node(node_id: str, node_map: Dict[str, Any]) -> Dict[str, Any]:
     """The 'Snap'. Stitches child fragments and logs the vector collapse."""
     node = node_map[node_id]
     
-    # 1. Archive the Strain Distance
     if "reconciliation_history" not in node:
         node["reconciliation_history"] = []
         
@@ -83,7 +95,6 @@ def reconcile_node(node_id: str, node_map: Dict[str, Any]) -> Dict[str, Any]:
         "action": "Vector Collapse: Fragments stitched into single coherent run."
     })
     
-    # 2. THE STITCH: Extract and concatenate child fragments
     child_runs = [c for c in node.get("hasChild", []) if " -> r" in node_map.get(c, {}).get("dag_path", "")]
     stitched_text = ""
     
@@ -92,10 +103,8 @@ def reconcile_node(node_id: str, node_map: Dict[str, Any]) -> Dict[str, Any]:
         if r_node.get("coi"):
             stitched_text += r_node["coi"] + " "
             
-    # Update the parent node's payload
     node["coi"] = stitched_text.strip() if stitched_text else "[STITCHED PAYLOAD RECOVERED FROM FRAGMENTS]"
     
-    # 3. Return the Atom to Equilibrium
     node["alignment_status"] = "Equilibrium"
     node["strain_distance_delta"] = 0
     node["strain_vectors"] = {}
@@ -126,8 +135,6 @@ class PedagogicalController:
 # --- UI OBSERVATION LAYER ---
 # ==========================================
 def main():
-    st.set_page_config(page_title="Chestnut Alignment Core", layout="wide", initial_sidebar_state="expanded")
-    
     if 'controller' not in st.session_state:
         st.session_state.controller = PedagogicalController()
     
@@ -148,16 +155,16 @@ def main():
                 with zipfile.ZipFile(uploaded_file) as z:
                     st.session_state.node_map = evaluate_alignment_strain(generate_dag_vectors(z, "word/document.xml"))
                 controller.next()
-                st.rerun()
+                trigger_rerun()
 
         st.markdown("---")
         col_prev, col_next = st.columns(2)
         if col_prev.button("⬅️ Back") and controller.step > 1:
             controller.prev()
-            st.rerun()
+            trigger_rerun()
         if col_next.button("Next ➡️") and controller.step < 4:
             controller.next()
-            st.rerun()
+            trigger_rerun()
 
     st.title("Topological Alignment Core")
     
@@ -169,7 +176,6 @@ def main():
     elif controller.step >= 3 and 'node_map' in st.session_state:
         st.subheader("Orthogonal Alignment Viewer")
         
-        # --- THE WORKLIST FILTER ---
         st.markdown("##### Diagnostic Worklist")
         filter_option = st.radio("Node Filter:", ["Action Required (Strain Only)", "View All Target Nodes"], horizontal=True)
         
@@ -197,4 +203,20 @@ def main():
             if observed_node["alignment_status"] == "Strain":
                 st.error(f"❌ STRAIN DETECTED: {', '.join(observed_node['alignment_notes'])}")
                 
-                #
+                if controller.step == 4:
+                    if st.button("⚡ Reconcile Atom (Snap to Contract)"):
+                        st.session_state.node_map = reconcile_node(selected_id, st.session_state.node_map)
+                        st.success("✅ SNAP! Fragments stitched. Node returning to Equilibrium...")
+                        st.toast("Atom Reconciled Successfully!", icon="✅")
+                        time.sleep(1.5) 
+                        trigger_rerun()
+            else:
+                st.success("✅ EQUILIBRIUM: Atom in alignment with Contract.")
+        else:
+            if filter_option == "Action Required (Strain Only)":
+                st.success("🏆 Inbox Zero: No nodes are currently in a state of Strain. The document is aligned.")
+            else:
+                st.warning("No target nodes found in the current document structure.")
+
+if __name__ == "__main__":
+    main()
