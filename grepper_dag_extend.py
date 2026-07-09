@@ -256,7 +256,7 @@ def main():
             st.markdown("By enforcing strict deterministic topology before passing data to an LLM, you stop paying a probabilistic tax on structural boilerplate.")
             
             col_met1, col_met2, col_met3 = st.columns(3)
-            col_met1.metric(label="Raw XML Payload", value="~11,000 Tokens", delta="High Compute Cost", delta_color="inverse")
+            col_met1.metric(label="Example Raw XML Payload", value="~11,000 Tokens", delta="High Compute Cost", delta_color="inverse")
             col_met2.metric(label="Density Compression", value="- 40%", delta="Boilerplate Stripped", delta_color="normal")
             col_met3.metric(label="Reconciled DAG Payload", value="~6,600 Tokens", delta="High Signal-to-Noise", delta_color="normal")
             
