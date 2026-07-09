@@ -68,5 +68,23 @@ def evaluate_alignment_strain(node_map: Dict[str, Any]) -> Dict[str, Any]:
         node["strain_vectors"] = {} 
         node["alignment_notes"] = []
         
+        # Ensure we only evaluate nodes that are part of the paragraph structure
         if " -> p" in node.get("dag_path", ""):
-            text_runs =
+            # Re-establishing the run count logic with explicit list building to avoid syntax errors
+            child_ids = node.get("hasChild", [])
+            text_runs = []
+            for c_id in child_ids:
+                if " -> r" in node_map.get(c_id, {}).get("dag_path", ""):
+                    text_runs.append(c_id)
+            
+            run_count = len(text_runs)
+            allowed_runs = CONTRACT_REFERENCE["max_text_runs"]
+            
+            if run_count > allowed_runs:
+                delta = run_count - allowed_runs
+                node["alignment_status"] = "Strain"
+                node["strain_distance_delta"] = delta
+                node["strain_vectors"]["y_axis_hierarchy"] = -delta 
+                node["alignment_notes"].append(f"Fragmentation: |Δ| = {delta} ({run_count} runs observed vs {allowed_runs} allowed).")
+                
+    return node_map
