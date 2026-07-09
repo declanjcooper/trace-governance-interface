@@ -239,7 +239,6 @@ def main():
                 st.markdown("### 🔭 Visual Simulation of Reconciliation")
                 st.markdown("Observe the geometric friction. Use the slider to introduce structural vectors and force the node back into alignment with the Master Contract.")
                 
-                # Added a unique key linked to the selected node to prevent state collisions
                 resolution_time = st.slider("Resolution Vector Engine", 0.0, 1.0, 0.0, step=0.05, key=f"reconcile_slider_{selected_id}")
                 
                 chart = render_native_simulation(observed_node, resolution_time)
@@ -258,14 +257,9 @@ def main():
             if filter_option == "Action Required (Strain Only)":
                 st.success("🏆 Inbox Zero: No nodes are currently in a state of Strain. The document is aligned.")
             else:
-         # ... existing Inbox Zero / No target nodes logic ...
-        else:
-            if filter_option == "Action Required (Strain Only)":
-                st.success("🏆 Inbox Zero: No nodes are currently in a state of Strain. The document is aligned.")
-            else:
                 st.warning("No target nodes found in the current document structure.")
 
-        # --- ADD THIS NEW BLOCK FOR STEP 5 ---
+        # --- STEP 5: INFORMATION DENSITY PAYOFF ---
         if controller.step == 5:
             st.divider()
             st.markdown("### 🧠 The ROI of Information Density")
@@ -276,7 +270,7 @@ def main():
             col_met2.metric(label="Density Compression", value="- 40%", delta="Boilerplate Stripped", delta_color="normal")
             col_met3.metric(label="Reconciled DAG Payload", value="~6,600 Tokens", delta="High Signal-to-Noise", delta_color="normal")
             
-            st.info("💡 **The Lesson:** An LLM cannot hallucinate on ambiguity that no longer exists. Dense, structurally sound data is the foundation of AI governance.")       st.warning("No target nodes found in the current document structure.")
-        
+            st.info("💡 **The Lesson:** An LLM cannot hallucinate on ambiguity that no longer exists. Dense, structurally sound data is the foundation of AI governance.")
+
 if __name__ == "__main__":
     main()
