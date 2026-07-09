@@ -4,8 +4,8 @@ import xml.etree.ElementTree as ET
 import uuid
 import datetime
 import time
-import numpy as np
-import plotly.graph_objects as go
+import altair as alt
+import pandas as pd
 from typing import Dict, Any
 
 # ==========================================
@@ -78,7 +78,6 @@ def evaluate_alignment_strain(node_map: Dict[str, Any]) -> Dict[str, Any]:
                 delta = run_count - allowed_runs
                 node["alignment_status"] = "Strain"
                 node["strain_distance_delta"] = delta
-                # Using the specific Y-axis hierarchy vector for our 3D mapping
                 node["strain_vectors"]["y_axis_hierarchy"] = -delta 
                 node["alignment_notes"].append(f"Fragmentation: |Δ| = {delta} ({run_count} runs observed vs {allowed_runs} allowed).")
                 
@@ -116,65 +115,33 @@ def reconcile_node(node_id: str, node_map: Dict[str, Any]) -> Dict[str, Any]:
     return node_map
 
 # ==========================================
-# --- 3D VISUALIZATION ENGINE ---
+# --- 2D VISUALIZATION ENGINE ---
 # ==========================================
-def render_reconciliation_simulation(node_data, resolution_progress=0.0):
+def render_native_simulation(node_data, resolution_progress=0.0):
     """
-    Renders the 3-6-1 topology and animates the strain resolution.
-    resolution_progress: 0.0 = Strained, 1.0 = Equilibrium (Origin)
+    Renders a native 2D cross-section of the topology using Altair.
     """
-    strain = node_data.get("strain_vectors", {})
-    start_x = strain.get("x_axis_structure", 0)
-    start_y = strain.get("y_axis_hierarchy", 0)
-    start_z = strain.get("z_axis_context", 0)
+    start_y = node_data.get("strain_vectors", {}).get("y_axis_hierarchy", 0)
+    current_y = start_y + (0.0 - start_y) * resolution_progress
     
-    start_pos = np.array([start_x, start_y, start_z])
-    origin = np.array([0.0, 0.0, 0.0])
+    data = pd.DataFrame({
+        "X": [0.0, 0.0],
+        "Y": [0.0, current_y],
+        "Entity": ["Master Contract (0,0)", f"Node {node_data.get('@id', 'Unknown')[:8]}"],
+        "State": ["Equilibrium", "Resolved" if resolution_progress == 1.0 else "Strain"]
+    })
     
-    current_pos = start_pos + (origin - start_pos) * resolution_progress
+    chart = alt.Chart(data).mark_circle(size=400, opacity=0.8).encode(
+        x=alt.X("X", scale=alt.Scale(domain=[-1.5, 1.5]), title="Syntactic Structure (X Axis)"),
+        y=alt.Y("Y", scale=alt.Scale(domain=[-1.5, 1.5]), title="Semantic Meaning (Y Axis)"),
+        color=alt.Color("State", scale=alt.Scale(
+            domain=["Equilibrium", "Strain", "Resolved"],
+            range=["gray", "orange", "teal"]
+        )),
+        tooltip=["Entity", "X", "Y", "State"]
+    ).properties(height=400)
     
-    fig = go.Figure()
-
-    # Draw the Axes
-    axis_config = [
-        ([-1.5, 1.5], [0, 0], [0, 0], "X-Axis (Syntactic)", "gray"),
-        ([0, 0], [-1.5, 1.5], [0, 0], "Y-Axis (Semantic)", "gray"),
-        ([0, 0], [0, 0], [-1.5, 1.5], "Z-Axis (Context)", "gray")
-    ]
-    for x, y, z, name, color in axis_config:
-        fig.add_trace(go.Scatter3d(x=x, y=y, z=z, mode="lines", line=dict(color=color, width=2, dash="dot"), name=name, hoverinfo="skip"))
-
-    # Plot the Origin
-    fig.add_trace(go.Scatter3d(x=[0], y=[0], z=[0], mode="markers", marker=dict(size=8, color="white", symbol="diamond"), name="Master Contract (0,0,0)"))
-
-    # Plot the Content of Interest
-    node_color = "cyan" if resolution_progress == 1.0 else "orange"
-    node_label = "Equilibrium" if resolution_progress == 1.0 else f"Strain Δ={node_data.get('strain_distance_delta', 0)}"
-    
-    fig.add_trace(go.Scatter3d(
-        x=[current_pos[0]], y=[current_pos[1]], z=[current_pos[2]],
-        mode="markers+text", marker=dict(size=12, color=node_color),
-        text=[f"{node_data.get('@id')} ({node_label})"], textposition="top center", name="Current Node State"
-    ))
-
-    # Draw the Friction Line
-    if resolution_progress < 1.0:
-        fig.add_trace(go.Scatter3d(
-            x=[0, current_pos[0]], y=[0, current_pos[1]], z=[0, current_pos[2]],
-            mode="lines", line=dict(color="orange", width=5), name="Friction (Δ)"
-        ))
-
-    fig.update_layout(
-        scene=dict(
-            xaxis=dict(range=[-1.5, 1.5], title="Structure"),
-            yaxis=dict(range=[-1.5, 1.5], title="Meaning"),
-            zaxis=dict(range=[-1.5, 1.5], title="Context"),
-            aspectmode="cube"
-        ),
-        margin=dict(l=0, r=0, b=0, t=0), height=500,
-        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
-    )
-    return fig
+    return chart
 
 # ==========================================
 # --- PEDAGOGICAL CONTROLLER ---
@@ -261,3 +228,36 @@ def main():
             with col_con:
                 st.markdown("#### Contract Vector (Required)")
                 st.json(CONTRACT_REFERENCE)
+                
+            st.divider()
+            
+            if observed_node["alignment_status"] == "Strain":
+                st.error(f"❌ STRAIN DETECTED: {', '.join(observed_node['alignment_notes'])}")
+                
+                # --- VISUAL SIMULATION BLOCK (ALTAIR) ---
+                st.markdown("### 🔭 Visual Simulation of Reconciliation")
+                st.markdown("Observe the geometric friction. Use the slider to introduce structural vectors and force the node back into alignment with the Master Contract.")
+                
+                # Added a unique key linked to the selected node to prevent state collisions
+                resolution_time = st.slider("Resolution Vector Engine", 0.0, 1.0, 0.0, step=0.05, key=f"reconcile_slider_{selected_id}")
+                
+                chart = render_native_simulation(observed_node, resolution_time)
+                st.altair_chart(chart, use_container_width=True)
+                
+                if controller.step == 4:
+                    if st.button("⚡ Execute Final Snap (Write to Contract)", use_container_width=True):
+                        st.session_state.node_map = reconcile_node(selected_id, st.session_state.node_map)
+                        st.success("✅ SNAP! Fragments stitched. Node returning to Equilibrium...")
+                        st.toast("Atom Reconciled Successfully!", icon="✅")
+                        time.sleep(1.5) 
+                        trigger_rerun()
+            else:
+                st.success("✅ EQUILIBRIUM: Atom in alignment with Contract.")
+        else:
+            if filter_option == "Action Required (Strain Only)":
+                st.success("🏆 Inbox Zero: No nodes are currently in a state of Strain. The document is aligned.")
+            else:
+                st.warning("No target nodes found in the current document structure.")
+
+if __name__ == "__main__":
+    main()
