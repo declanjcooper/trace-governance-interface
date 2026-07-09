@@ -145,7 +145,7 @@ class PedagogicalController:
             2: {"title": "2. Topological Mapping", "text": "Upload a .docx file. The engine will map the raw XML into a deterministic DAG path."},
             3: {"title": "3. Orthogonal Inspection", "text": "The engine has calculated the distance (Δ) from the origin for all nodes. We now filter the Worklist to display only atoms currently in a state of Strain."},
             4: {"title": "4. Reconciliation Snap", "text": "Engage the reconciliation vector for the strained atoms. Watch the nodes snap back into Equilibrium and disappear from the active Worklist."},
-            5: {"title": "5. Information Density", "text": "You have separated the container from the cargo. By flattening the fractured vectors, you created a high-density payload that mitigates the ambiguity LLMs use to hallucinate."}
+            5: {"title": "5. Information Density", "text": "You have separated the container from the cargo. By flattening the fractured vectors, you created a high-density payload that mitigates the ambiguity causing LLMs to hallucinate."}
         }
 
     def next(self):
