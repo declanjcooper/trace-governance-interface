@@ -252,7 +252,7 @@ def main():
         # --- STEP 5: INFORMATION DENSITY PAYOFF ---
         if controller.step == 5:
             st.divider()
-            st.markdown("### 🧠 The ROI of Information Density")
+            st.markdown("### 🧠 Concept: The ROI of Information Density")
             st.markdown("By enforcing strict deterministic topology before passing data to an LLM, you stop paying a probabilistic tax on structural boilerplate.")
             
             col_met1, col_met2, col_met3 = st.columns(3)
