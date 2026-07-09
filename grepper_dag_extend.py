@@ -11,7 +11,6 @@ from typing import Dict, Any
 # ==========================================
 # --- STREAMLIT LIFECYCLE INITIALIZATION ---
 # ==========================================
-# MUST be at the absolute top of the global scope to prevent lifecycle errors.
 st.set_page_config(page_title="Chestnut Alignment Core", layout="wide", initial_sidebar_state="expanded")
 
 def trigger_rerun():
@@ -24,7 +23,6 @@ def trigger_rerun():
 # ==========================================
 # --- TOPOLOGICAL ALIGNMENT CORE ---
 # ==========================================
-
 CONTRACT_REFERENCE = {
     "target_node": "p",
     "required_properties": ["coi", "hasChild"],
@@ -84,9 +82,7 @@ def evaluate_alignment_strain(node_map: Dict[str, Any]) -> Dict[str, Any]:
     return node_map
 
 def reconcile_node(node_id: str, node_map: Dict[str, Any]) -> Dict[str, Any]:
-    """The 'Snap'. Stitches child fragments and logs the vector collapse."""
     node = node_map[node_id]
-    
     if "reconciliation_history" not in node:
         node["reconciliation_history"] = []
         
@@ -99,14 +95,12 @@ def reconcile_node(node_id: str, node_map: Dict[str, Any]) -> Dict[str, Any]:
     
     child_runs = [c for c in node.get("hasChild", []) if " -> r" in node_map.get(c, {}).get("dag_path", "")]
     stitched_text = ""
-    
     for r_id in child_runs:
         r_node = node_map.get(r_id, {})
         if r_node.get("coi"):
             stitched_text += r_node["coi"] + " "
             
     node["coi"] = stitched_text.strip() if stitched_text else "[STITCHED PAYLOAD RECOVERED FROM FRAGMENTS]"
-    
     node["alignment_status"] = "Equilibrium"
     node["strain_distance_delta"] = 0
     node["strain_vectors"] = {}
@@ -118,9 +112,6 @@ def reconcile_node(node_id: str, node_map: Dict[str, Any]) -> Dict[str, Any]:
 # --- 2D VISUALIZATION ENGINE ---
 # ==========================================
 def render_native_simulation(node_data, resolution_progress=0.0):
-    """
-    Renders a native 2D cross-section of the topology using Altair.
-    """
     start_y = node_data.get("strain_vectors", {}).get("y_axis_hierarchy", 0)
     current_y = start_y + (0.0 - start_y) * resolution_progress
     
@@ -235,7 +226,6 @@ def main():
             if observed_node["alignment_status"] == "Strain":
                 st.error(f"❌ STRAIN DETECTED: {', '.join(observed_node['alignment_notes'])}")
                 
-                # --- VISUAL SIMULATION BLOCK (ALTAIR) ---
                 st.markdown("### 🔭 Visual Simulation of Reconciliation")
                 st.markdown("Observe the geometric friction. Use the slider to introduce structural vectors and force the node back into alignment with the Master Contract.")
                 
