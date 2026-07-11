@@ -2,13 +2,13 @@ import streamlit as st
 import zipfile
 import lxml.etree as ET
 
-class StructuralAuditor:
+class StructuralStressTest:
     def __init__(self, doc_path):
         self.doc_path = doc_path
         self.registry = self._map_registry()
 
     def _map_registry(self):
-        """Maps relationship IDs to their respective document component targets."""
+        """Extracts the XML structural registry (Ground Truth)."""
         mapping = {}
         with zipfile.ZipFile(self.doc_path) as z:
             with z.open('word/_rels/document.xml.rels') as f:
@@ -18,37 +18,38 @@ class StructuralAuditor:
                     mapping[rel.get('Id')] = rel.get('Target')
         return mapping
 
+    def run_automated_audit(self, ai_generated_content):
+        """Programmatically identifies missing structural nodes."""
+        missing = {k: v for k, v in self.registry.items() if k not in ai_generated_content}
+        fidelity_score = (len(self.registry) - len(missing)) / len(self.registry)
+        return {"missing": missing, "score": fidelity_score}
+
 def main():
-    st.title("Document Structural Auditor")
-    uploaded_file = st.file_uploader("Upload .docx file", type=["docx"])
+    st.title("Deterministic Ingestion Stress Test")
+    uploaded_file = st.file_uploader("Upload .docx for Stress Test", type=["docx"])
 
     if uploaded_file:
-        auditor = StructuralAuditor(uploaded_file)
+        stress_tester = StructuralStressTest(uploaded_file)
         
-        # 1. Display document structural registry
-        with st.expander("View Document Structural Registry"):
-            st.write("Identified structural components (Relationship IDs):")
-            data = [{"ID": k, "Component": v} for k, v in auditor.registry.items()]
-            st.table(data)
-            st.info("The identified components define the structural integrity of the document.")
-
-        # 2. Input for AI-generated response
-        llm_response = st.text_area("Paste AI-generated output for validation:")
+        # AUTOMATED TRIGGER: Instead of waiting for a paste, 
+        # the system acknowledges the Ground Truth instantly.
+        st.write(f"Registry Loaded: {len(stress_tester.registry)} structural atoms identified.")
         
-        if st.button("Audit Structural Fidelity"):
-            # Identify missing structural references
-            missing = {k: v for k, v in auditor.registry.items() if k not in llm_response}
-            
-            if not missing:
-                st.success("All structural components identified in the output.")
-            else:
-                st.error("Audit findings: Missing structural component references:")
-                st.table([{"ID": k, "Component": v} for k, v in missing.items()])
-                
-                # Contextual explanation regarding structural validation
-                st.warning("The AI output omitted references to identified structural components. "
-                           "Probabilistic models may prioritize semantic fluency over "
-                           "the verification of underlying document architecture.")
+        # This represents the AI's internal 'hallucination' or ingestion attempt
+        # In a full pipeline, this content would be fetched via API
+        mock_ai_output = "The document describes regulatory compliance requirements."
+        
+        st.write("---")
+        st.info("Running automated diagnostic against structural ground truth...")
+        
+        results = stress_tester.run_automated_audit(mock_ai_output)
+        
+        if results["score"] == 1.0:
+            st.success("Verification Passed: Structural integrity maintained.")
+        else:
+            st.error("Verification Failed: Systemic extraction drift detected.")
+            st.write(f"Structural atoms lost during ingestion: {len(results['missing'])}")
+            st.table([{"ID": k, "Component": v} for k, v in results["missing"].items()])
 
 if __name__ == "__main__":
     main()
