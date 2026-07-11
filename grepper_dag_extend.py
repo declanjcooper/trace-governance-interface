@@ -19,6 +19,7 @@ class SchemaComparator:
                 root = ET.parse(f).getroot()
                 ns = {'rels': 'http://schemas.openxmlformats.org/package/2006/relationships'}
                 for rel in root.findall('.//rels:Relationship', ns):
+                    # Explicitly convert to string to ensure Arrow compatibility
                     schema[str(rel.get('Id'))] = str(rel.get('Target'))
         return schema
 
@@ -28,6 +29,7 @@ class SchemaComparator:
         lineage = []
         for i, page in enumerate(reader.pages):
             text = page.extract_text()
+            # Explicitly cast all elements to strings
             lineage.append({
                 "Step": str(i + 1), 
                 "Inferred_Node": str(text[:50].strip())
