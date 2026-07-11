@@ -5,7 +5,7 @@ import pypdf
 import pandas as pd
 import sys
 
-# Set page config at the very top
+# Configure the page layout for wide comparison
 st.set_page_config(layout="wide")
 
 class SchemaComparator:
@@ -14,6 +14,7 @@ class SchemaComparator:
         self.pdf_path = pdf_path
 
     def get_docx_data(self):
+        """Extracts the native XML relationship registry from the .docx package."""
         try:
             schema = {}
             with zipfile.ZipFile(self.doc_path) as z:
@@ -21,17 +22,20 @@ class SchemaComparator:
                     root = ET.parse(f).getroot()
                     ns = {'rels': 'http://schemas.openxmlformats.org/package/2006/relationships'}
                     for rel in root.findall('.//rels:Relationship', ns):
+                        # Force string conversion for Arrow compatibility
                         schema[str(rel.get('Id'))] = str(rel.get('Target'))
             return schema
         except Exception as e:
             return {"Error": str(e)}
 
     def get_pdf_data(self):
+        """Captures the linear sequence inferred by the PDF extraction process."""
         try:
             reader = pypdf.PdfReader(self.pdf_path)
             lineage = []
             for i, page in enumerate(reader.pages):
                 text = page.extract_text() or ""
+                # Force string conversion for Arrow compatibility
                 lineage.append({
                     "Step": str(i + 1), 
                     "Inferred_Node": str(text[:50].strip())
@@ -57,18 +61,19 @@ def main():
         
         st.subheader("Analysis Results")
         
-        # Safe Dataframe creation
         try:
-            st.write("### Structural Inventory")
+            st.write("### Structural Inventory Comparison")
             col_a, col_b = st.columns(2)
             
             with col_a:
-                st.write("**Native XML Registry**")
+                st.write("**Native XML Registry (Source)**")
+                # Ensure data is converted to list of tuples for DataFrame construction
                 st.table(pd.DataFrame(list(docx_schema.items()), columns=["ID", "Target"]))
                 
             with col_b:
-                st.write("**Extracted Lineage**")
+                st.write("**Extracted Lineage (Target)**")
                 st.table(pd.DataFrame(pdf_lineage))
+                
         except Exception as e:
             st.error(f"Render Error: {e}")
 
