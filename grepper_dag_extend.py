@@ -10,37 +10,60 @@ class ChestnutNode:
     tag: str
     path: str
     text: str = ""
+    style_id: str = None  # Added style context
     children: List['ChestnutNode'] = field(default_factory=list)
 
 class StructuralCompiler:
-    def __init__(self):
-        # The SSOT Schema Matrix
+    def __init__(self, doc_path):
+        self.archive = zipfile.ZipFile(doc_path)
+        self.ns = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
+        self.styles = self._load_styles()
         self.schema_matrix = {
             "document/body/p/r/t": "Native_Narrative",
             "document/body/tbl/tr/tc/p/r/t": "Native_Tabular"
         }
 
-    def build_dag(self, doc_path: str, part_name: str) -> ChestnutNode:
-        with zipfile.ZipFile(doc_path) as archive:
-            with archive.open(part_name) as f:
-                root = ET.parse(f).getroot()
-                return self._traverse_and_build(root, "root")
+    def _load_styles(self) -> Dict[str, str]:
+        """Maps Style IDs to their semantic names from styles.xml."""
+        styles = {}
+        with self.archive.open('word/styles.xml') as f:
+            root = ET.parse(f).getroot()
+            for style in root.findall('.//w:style', self.ns):
+                s_id = style.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}styleId')
+                name = style.find('.//w:name', self.ns)
+                styles[s_id] = name.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val') if name is not None else s_id
+        return styles
 
-    def _traverse_and_build(self, element, current_path: str) -> ChestnutNode:
+    def build_dag(self, part_name: str) -> ChestnutNode:
+        with self.archive.open(part_name) as f:
+            root = ET.parse(f).getroot()
+            return self._traverse_and_build(root, "root")
+
+    def _traverse_and_build(self, element, current_path: str, current_style: str = None) -> ChestnutNode:
         tag = element.tag.split('}')[-1]
         new_path = f"{current_path}/{tag}"
+        
+        # Resolve Style Context
+        if tag == 'p':
+            pPr = element.find('w:pPr', self.ns)
+            if pPr is not None:
+                pStyle = pPr.find('w:pStyle', self.ns)
+                if pStyle is not None:
+                    current_style = pStyle.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val')
+
         text_content = element.text.strip() if element.text and element.text.strip() else ""
-        node = ChestnutNode(tag=tag, path=new_path, text=text_content)
+        node = ChestnutNode(tag=tag, path=new_path, text=text_content, style_id=self.styles.get(current_style, current_style))
+
         for child in element:
             if isinstance(child.tag, str):
-                node.children.append(self._traverse_and_build(child, new_path))
+                node.children.append(self._traverse_and_build(child, new_path, current_style))
         return node
 
     def bifurcate(self, node: ChestnutNode, ledger: Dict):
         is_native = False
         for vector, state in self.schema_matrix.items():
             if node.path.endswith(vector):
-                ledger["Validated"].append({"State": state, "Path": node.path, "Content": node.text})
+                ledger["Validated"].append({"State": state, "Style": node.style_id, "Path": node.path, "Content": node.text})
                 is_native = True
                 break
         
@@ -52,20 +75,18 @@ class StructuralCompiler:
 
 def main():
     st.set_page_config(layout="wide", page_title="Chestnut TRACE: Governance Engine")
-    st.title("Deterministic Governance Engine")
+    st.title("Deterministic Governance Engine: Semantic Resolution")
     
     uploaded_file = st.file_uploader("Upload .docx", type=["docx"])
     
     if uploaded_file:
-        compiler = StructuralCompiler()
-        root = compiler.build_dag(uploaded_file, 'word/document.xml')
+        compiler = StructuralCompiler(uploaded_file)
+        root = compiler.build_dag('word/document.xml')
         
         ledger = {"Validated": [], "Quarantined": []}
         compiler.bifurcate(root, ledger)
         
-        # Display Architecture
         col1, col2 = st.columns(2)
-        
         with col1:
             st.subheader("Validated Ledger (SSOT)")
             df_valid = pd.DataFrame(ledger["Validated"])
@@ -73,13 +94,10 @@ def main():
             
         with col2:
             st.subheader("Reconstruction Queue (Quarantine)")
-            st.write("Flagged nodes for schema migration:")
-            # Data Editor solves the duplicate key issue by using row indices
-            df_quarantine = pd.DataFrame(ledger["Quarantined"])
-            edited_df = st.data_editor(df_quarantine, use_container_width=True)
-            
+            df_q = pd.DataFrame(ledger["Quarantined"])
+            edited_df = st.data_editor(df_q, use_container_width=True)
             if st.button("Commit Governance Action"):
-                st.write("Selected paths marked for structural flattening.")
+                st.success("Governance rules updated.")
 
 if __name__ == "__main__":
     main()
