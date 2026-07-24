@@ -130,7 +130,10 @@ def main():
         with tab1:
             st.subheader("Semantic Governance Pulse")
             if not ledger["Validated"]:
-                st.warning("No validated semantic content found. Check Quarantine Ledger for anomalies.")
+                st.warning("No validated semantic content found.")
+                if ledger["Quarantined"]:
+                    st.error(f"Quarantine Ledger: {len(ledger['Quarantined'])} anomalies detected.")
+                    st.dataframe(pd.DataFrame(ledger["Quarantined"]), use_container_width=True)
             else:
                 df_valid = pd.DataFrame(ledger["Validated"])
                 if 'Style' in df_valid.columns:
