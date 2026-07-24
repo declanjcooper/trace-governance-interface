@@ -104,7 +104,7 @@ def main():
             filtered_df = combined_df[combined_df['Source'].isin(selected_sources)]
             
             chart = alt.Chart(filtered_df.reset_index()).mark_circle(size=80).encode(
-                x=alt.X('index', title='Atom Sequence (by file)'),
+                x=alt.X('index', title='Atom Sequence'),
                 y=alt.Y('Category', sort=['Heading', 'Body_Text', 'Table_Atom', 'Other']),
                 color='Source', column='Source', tooltip=['Source', 'Category', 'Style', 'Content']
             ).properties(width=300).interactive()
@@ -116,10 +116,36 @@ def main():
         var_files = col2.file_uploader("Upload SOPs to Audit (Variants)", type=["docx"], accept_multiple_files=True)
         
         if ref_file and var_files:
-            # Logic: Show Reference and Variants side-by-side for Structural Drift audit
-            st.info("Template Audit Active: Comparing against Master Reference.")
-            # ... (Implementation of comparison visualization)
-            st.warning("Audit engine awaiting structural diff configuration.")
+            all_data = []
+            # Reference
+            ref_compiler = StructuralCompiler(ref_file)
+            root = ref_compiler.build_dag('word/document.xml')
+            ledger = {"Validated": [], "Quarantined": []}
+            ref_compiler.bifurcate(root, ledger)
+            df_ref = pd.DataFrame(ledger["Validated"])
+            df_ref['Source'] = f"REF: {ref_file.name}"
+            df_ref['Category'] = df_ref['Style'].apply(get_semantic_rank)
+            all_data.append(df_ref)
+            
+            # Variants
+            for file in var_files:
+                compiler = StructuralCompiler(file)
+                root = compiler.build_dag('word/document.xml')
+                ledger = {"Validated": [], "Quarantined": []}
+                compiler.bifurcate(root, ledger)
+                df = pd.DataFrame(ledger["Validated"])
+                df['Source'] = f"VAR: {file.name}"
+                df['Category'] = df['Style'].apply(get_semantic_rank)
+                all_data.append(df)
+            
+            combined_df = pd.concat(all_data, ignore_index=True)
+            st.subheader("Comparative Structural Audit")
+            chart = alt.Chart(combined_df.reset_index()).mark_circle(size=80).encode(
+                x=alt.X('index', title='Atom Sequence'),
+                y=alt.Y('Category', sort=['Heading', 'Body_Text', 'Table_Atom', 'Other']),
+                color='Source', column='Source', tooltip=['Source', 'Category', 'Style', 'Content']
+            ).properties(width=250).interactive()
+            st.altair_chart(chart, use_container_width=True)
 
 if __name__ == "__main__":
     main()
