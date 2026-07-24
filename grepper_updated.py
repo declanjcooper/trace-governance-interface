@@ -2,48 +2,45 @@ import streamlit as st
 import zipfile
 import lxml.etree as ET
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Dict
 
 @dataclass
 class ChestnutNode:
     tag: str
     text: Optional[str] = None
     children: List['ChestnutNode'] = field(default_factory=list)
+    path: str = ""
 
 class ChestnutCompiler:
     def __init__(self, docx_path: str):
         self.archive = zipfile.ZipFile(docx_path)
-        self.ns = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
 
-    def parse_part(self, part_name: str) -> ChestnutNode:
+    def parse_structure(self, part_name: str) -> ChestnutNode:
         with self.archive.open(part_name) as f:
             root = ET.parse(f).getroot()
-            return self._build_tree(root)
+            return self._build_dag(root, "root")
 
-    def _build_tree(self, element) -> ChestnutNode:
+    def _build_dag(self, element, path: str) -> ChestnutNode:
         tag = element.tag.split('}')[-1]
-        node = ChestnutNode(tag=tag, text=element.text.strip() if element.text and element.text.strip() else None)
-        for child in element:
+        new_path = f"{path} -> {tag}"
+        node = ChestnutNode(tag=tag, text=element.text.strip() if element.text else None, path=new_path)
+        for i, child in enumerate(element):
             if isinstance(child.tag, str):
-                node.children.append(self._build_tree(child))
+                node.children.append(self._build_dag(child, f"{new_path}[{i}]"))
         return node
 
-def render_tree(node: ChestnutNode, level=0):
-    """Recursive visualizer for the structural signature."""
-    prefix = "  " * level
-    st.text(f"{prefix}└── {node.tag} {f': {node.text}' if node.text else ''}")
-    for child in node.children:
-        render_tree(child, level + 1)
-
 def main():
-    st.title("Chestnut TRACE: Structural Compiler")
+    st.title("Chestnut TRACE: Governance Map")
     uploaded_file = st.file_uploader("Upload .docx", type=["docx"])
     
     if uploaded_file:
         compiler = ChestnutCompiler(uploaded_file)
-        tree = compiler.parse_part('word/document.xml')
-        st.subheader("Structural Signature (SSOT)")
-        render_tree(tree)
+        dag = compiler.parse_structure('word/document.xml')
+        
+        # We now have a machine-readable DAG that can be validated
+        st.write("DAG Vector Map Generated.")
+        # Here we would inject the logic to audit specific 'paths' 
+        # (e.g., checking if 'root -> body -> p -> r -> t' meets compliance)
 
 if __name__ == "__main__":
     main()
