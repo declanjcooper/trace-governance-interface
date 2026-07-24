@@ -70,9 +70,20 @@ class StructuralCompiler:
         for child in node.children:
             self.bifurcate(child, ledger)
 
+def reconstruct_hierarchical_json(ledger_data: List[Dict]) -> List[Dict]:
+    tree = []
+    current_parent = None
+    for item in ledger_data:
+        if "heading" in item['Style'].lower():
+            current_parent = {"Header": item['Content'], "Style": item['Style'], "Children": []}
+            tree.append(current_parent)
+        elif current_parent is not None:
+            current_parent["Children"].append(item)
+    return tree
+
 def main():
     st.set_page_config(layout="wide", page_title="Chestnut TRACE: Finalized")
-    st.title("Chestnut TRACE: Semantic Reconstruction")
+    st.title("Chestnut TRACE: Semantic Reconstruction Engine")
     
     uploaded_file = st.file_uploader("Upload .docx", type=["docx"])
     
@@ -89,15 +100,18 @@ def main():
         st.line_chart(df_valid['Style_Idx'])
         
         # 2. Finalization Export
-        if st.button("Finalize Artifact: Export as JSON"):
-            json_artifact = json.dumps(ledger["Validated"], indent=4)
-            st.download_button("Download Semantic JSON", json_artifact, "reconstruction.json", "application/json")
+        if st.button("Finalize Artifact: Export as Hierarchical JSON"):
+            tree = reconstruct_hierarchical_json(ledger["Validated"])
+            json_artifact = json.dumps(tree, indent=4)
+            st.download_button("Download Hierarchical JSON", json_artifact, "tree_reconstruction.json", "application/json")
             st.success("Reconstruction complete. Deterministic artifact ready.")
 
         col1, col2 = st.columns(2)
         with col1:
+            st.subheader("Validated Ledger")
             st.dataframe(df_valid, use_container_width=True)
         with col2:
+            st.subheader("Quarantine Ledger")
             st.data_editor(pd.DataFrame(ledger["Quarantined"]), use_container_width=True)
 
 if __name__ == "__main__":
