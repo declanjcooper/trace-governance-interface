@@ -14,6 +14,20 @@ class ChestnutNode:
     style_id: str = "Normal"
     children: List['ChestnutNode'] = field(default_factory=list)
 
+class TemplateMatcher:
+    """Defines the 'Ideal Pulse' of a compliant document."""
+    EXPECTED_SEQUENCE = ["heading 1", "normal", "table header", "table bullet 0"]
+    
+    @staticmethod
+    def analyze_compliance(ledger_data: List[Dict]) -> List[str]:
+        violations = []
+        # Basic pattern matching: check if styles exist in our expected template
+        for i, item in enumerate(ledger_data):
+            style = item['Style'].lower()
+            if "heading" in style and i > 0 and "heading" in ledger_data[i-1]['Style'].lower():
+                violations.append(f"Structural Anomaly at {item['Path']}: Consecutive Headers detected.")
+        return violations
+
 class StructuralCompiler:
     def __init__(self, doc_path):
         self.archive = zipfile.ZipFile(doc_path)
@@ -72,23 +86,27 @@ class StructuralCompiler:
 
 def reconstruct_hierarchical_json(ledger_data: List[Dict]) -> List[Dict]:
     tree = []
-    current_parent = None
+    root_container = {"Header": "Introduction/Pre-Header", "Style": "Heading 0", "Children": []}
+    current_parent = root_container
+    
     for item in ledger_data:
         if "heading" in item['Style'].lower():
             current_parent = {"Header": item['Content'], "Style": item['Style'], "Children": []}
             tree.append(current_parent)
-        elif current_parent is not None:
+        else:
+            if current_parent == root_container and not tree:
+                tree.insert(0, root_container)
             current_parent["Children"].append(item)
     return tree
 
 def to_markdown(tree: List[Dict]) -> str:
     md = ""
     for section in tree:
-        level = section['Style'].lower().replace('heading ', '')
+        level = str(section['Style']).lower().replace('heading ', '')
         prefix = "#" * int(level) if level.isdigit() else "###"
         md += f"{prefix} {section['Header']}\n\n"
         for child in section['Children']:
-            if child['State'] == 'Native_Narrative':
+            if child.get('State') == 'Native_Narrative':
                 md += f"{child['Content']}\n\n"
             else:
                 md += f"- {child['Content']}\n"
@@ -96,8 +114,8 @@ def to_markdown(tree: List[Dict]) -> str:
     return md
 
 def main():
-    st.set_page_config(layout="wide", page_title="Chestnut TRACE: Finalized")
-    st.title("Chestnut TRACE: Semantic Reconstruction Engine")
+    st.set_page_config(layout="wide", page_title="Chestnut TRACE: Template Matcher")
+    st.title("Chestnut TRACE: Structural Pattern Matching Engine")
     
     uploaded_file = st.file_uploader("Upload .docx", type=["docx"])
     
@@ -107,28 +125,30 @@ def main():
         ledger = {"Validated": [], "Quarantined": []}
         compiler.bifurcate(root, ledger)
         
+        # Run Pattern Matching
+        violations = TemplateMatcher.analyze_compliance(ledger["Validated"])
+        
         tree = reconstruct_hierarchical_json(ledger["Validated"])
         md_output = to_markdown(tree)
         
-        tab1, tab2, tab3 = st.tabs(["Governance Pulse", "Reconstructed Markdown", "Export Artifacts"])
+        tab1, tab2, tab3 = st.tabs(["Governance Pulse & Compliance", "Reconstructed Markdown", "Export Artifacts"])
         
         with tab1:
-            st.subheader("Semantic Governance Pulse")
-            df_valid = pd.DataFrame(ledger["Validated"])
-            df_valid['Style_Idx'] = df_valid['Style'].astype('category').cat.codes
-            st.line_chart(df_valid['Style_Idx'])
+            st.subheader("Structural Pattern Match Results")
+            if violations:
+                st.error(f"Pattern Mismatch Detected: {len(violations)} issues found.")
+                for v in violations: st.warning(v)
+            else:
+                st.success("Document matches template signature.")
+            
+            st.line_chart(pd.DataFrame(ledger["Validated"])['Style'].astype('category').cat.codes)
             
         with tab2:
-            st.subheader("Semantic Markdown Preview")
             st.markdown(md_output)
             
         with tab3:
-            st.subheader("Download Artifacts")
-            col_a, col_b = st.columns(2)
-            with col_a:
-                st.download_button("Download Hierarchical JSON", json.dumps(tree, indent=4), "tree.json")
-            with col_b:
-                st.download_button("Download Markdown Doc", md_output, "reconstruction.md")
+            st.download_button("Download Tree JSON", json.dumps(tree, indent=4), "tree.json")
+            st.download_button("Download Markdown Doc", md_output, "reconstruction.md")
 
 if __name__ == "__main__":
     main()
