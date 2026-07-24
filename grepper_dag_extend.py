@@ -73,18 +73,12 @@ class StructuralCompiler:
             self.bifurcate(child, ledger)
 
 def reconstruct_hierarchical_json(ledger_data: List[Dict]) -> List[Dict]:
-    # Semantic Boundary Filter
-    noise = ["Page", "Document No.:", "Uncontrolled when printed", "fda.hhs.gov"]
-    clean_data = [i for i in ledger_data if not any(n in i['Content'] for n in noise)]
-    
     tree = []
     current_parent = {"Header": "Introduction", "Style": "Normal", "Children": []}
     tree.append(current_parent)
     
-    for item in clean_data:
-        # Strict Header: Matches "Heading" style OR numeric prefix (e.g., "1. ")
+    for item in ledger_data:
         is_heading = ("heading" in item['Style'].lower()) or (item['Content'][0:2].isdigit() and "." in item['Content'])
-        
         if is_heading:
             current_parent = {"Header": item['Content'], "Style": item['Style'], "Children": []}
             tree.append(current_parent)
@@ -123,27 +117,27 @@ def main():
         ledger = {"Validated": [], "Quarantined": []}
         compiler.bifurcate(root, ledger)
         
-        tree = reconstruct_hierarchical_json(ledger["Validated"])
+        # Governance Pulse uses UNFILTERED data for sequence integrity
+        df_valid = pd.DataFrame(ledger["Validated"])
+        
+        # Reconstruction uses FILTERED data for clean output
+        noise = ["Page", "Document No.:", "Uncontrolled when printed", "fda.hhs.gov"]
+        filtered_ledger = [i for i in ledger["Validated"] if not any(n in i['Content'] for n in noise)]
+        
+        tree = reconstruct_hierarchical_json(filtered_ledger)
         md_output = to_markdown(tree)
         
         tab1, tab2, tab3 = st.tabs(["Governance Pulse", "Reconstructed Markdown", "Export Artifacts"])
         
         with tab1:
             st.subheader("Semantic Governance Pulse")
-            st.info("Filtering structural metadata noise and mapping headings by numeric index.")
-            if not ledger["Validated"]:
-                st.warning("No validated semantic content found.")
-                if ledger["Quarantined"]:
-                    st.dataframe(pd.DataFrame(ledger["Quarantined"]))
-            else:
-                df_valid = pd.DataFrame(ledger["Validated"])
-                df_valid['Category'] = df_valid['Style'].apply(get_semantic_rank)
-                chart = alt.Chart(df_valid.reset_index()).mark_circle(size=60).encode(
-                    x=alt.X('index', title='Sequence'),
-                    y=alt.Y('Category', sort=['Heading', 'Body_Text', 'Table_Atom', 'Other']),
-                    color='Category', tooltip=['index', 'Style', 'Content']
-                ).interactive()
-                st.altair_chart(chart, use_container_width=True)
+            df_valid['Category'] = df_valid['Style'].apply(get_semantic_rank)
+            chart = alt.Chart(df_valid.reset_index()).mark_circle(size=60).encode(
+                x=alt.X('index', title='Sequence'),
+                y=alt.Y('Category', sort=['Heading', 'Body_Text', 'Table_Atom', 'Other']),
+                color='Category', tooltip=['index', 'Style', 'Content']
+            ).interactive()
+            st.altair_chart(chart, use_container_width=True)
             
         with tab2:
             st.subheader("Semantic Markdown Preview")
