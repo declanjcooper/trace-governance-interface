@@ -3,6 +3,7 @@ import zipfile
 import lxml.etree as ET
 import pandas as pd
 import json
+import altair as alt
 from dataclasses import dataclass, field
 from typing import List, Dict
 
@@ -72,13 +73,11 @@ class StructuralCompiler:
 
 def reconstruct_hierarchical_json(ledger_data: List[Dict]) -> List[Dict]:
     tree = []
-    # Root container captures pre-header/unstructured data
     root_container = {"Header": "Unstructured Content", "Style": "Normal", "Children": []}
     current_parent = root_container
     tree.append(current_parent)
     
     for item in ledger_data:
-        # Semantic Heuristic: Check for Styles or Visual patterns (Caps/Roman Numerals)
         is_heading = "heading" in item['Style'].lower() or \
                      (item['Content'].isupper() and 0 < len(item['Content']) < 60)
         
@@ -89,15 +88,20 @@ def reconstruct_hierarchical_json(ledger_data: List[Dict]) -> List[Dict]:
             current_parent["Children"].append(item)
     return tree
 
+def get_semantic_rank(style_name: str) -> str:
+    s = style_name.lower()
+    if "heading" in s: return "Heading"
+    if "table" in s: return "Table_Atom"
+    if "normal" in s: return "Body_Text"
+    return "Other"
+
 def to_markdown(tree: List[Dict]) -> str:
     md = ""
     for section in tree:
-        # Determine header level
         style_str = str(section['Style']).lower()
         level = style_str.replace('heading ', '')
         prefix = "#" * int(level) if level.isdigit() else "###"
         md += f"{prefix} {section['Header']}\n\n"
-        
         for child in section['Children']:
             if child.get('State') == 'Native_Narrative':
                 md += f"{child['Content']}\n\n"
@@ -126,8 +130,17 @@ def main():
         with tab1:
             st.subheader("Semantic Governance Pulse")
             df_valid = pd.DataFrame(ledger["Validated"])
-            df_valid['Style_Idx'] = df_valid['Style'].astype('category').cat.codes
-            st.line_chart(df_valid['Style_Idx'])
+            df_valid['Category'] = df_valid['Style'].apply(get_semantic_rank)
+            
+            # Interactive Categorical Pulse Chart
+            chart = alt.Chart(df_valid.reset_index()).mark_circle(size=80).encode(
+                x=alt.X('index', title='Atom Sequence'),
+                y=alt.Y('Category', sort=['Heading', 'Body_Text', 'Table_Atom', 'Other']),
+                color='Category',
+                tooltip=['index', 'Style', 'Content']
+            ).interactive()
+            
+            st.altair_chart(chart, use_container_width=True)
             
         with tab2:
             st.subheader("Semantic Markdown Preview")
