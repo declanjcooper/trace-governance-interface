@@ -129,18 +129,19 @@ def main():
         
         with tab1:
             st.subheader("Semantic Governance Pulse")
-            df_valid = pd.DataFrame(ledger["Validated"])
-            df_valid['Category'] = df_valid['Style'].apply(get_semantic_rank)
-            
-            # Interactive Categorical Pulse Chart
-            chart = alt.Chart(df_valid.reset_index()).mark_circle(size=80).encode(
-                x=alt.X('index', title='Atom Sequence'),
-                y=alt.Y('Category', sort=['Heading', 'Body_Text', 'Table_Atom', 'Other']),
-                color='Category',
-                tooltip=['index', 'Style', 'Content']
-            ).interactive()
-            
-            st.altair_chart(chart, use_container_width=True)
+            if not ledger["Validated"]:
+                st.warning("No validated semantic content found. Check Quarantine Ledger for anomalies.")
+            else:
+                df_valid = pd.DataFrame(ledger["Validated"])
+                if 'Style' in df_valid.columns:
+                    df_valid['Category'] = df_valid['Style'].apply(get_semantic_rank)
+                    chart = alt.Chart(df_valid.reset_index()).mark_circle(size=80).encode(
+                        x=alt.X('index', title='Atom Sequence'),
+                        y=alt.Y('Category', sort=['Heading', 'Body_Text', 'Table_Atom', 'Other']),
+                        color='Category',
+                        tooltip=['index', 'Style', 'Content']
+                    ).interactive()
+                    st.altair_chart(chart, use_container_width=True)
             
         with tab2:
             st.subheader("Semantic Markdown Preview")
