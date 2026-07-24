@@ -72,27 +72,6 @@ class StructuralCompiler:
         for child in node.children:
             self.bifurcate(child, ledger)
 
-def reconstruct_hierarchical_json(ledger_data: List[Dict]) -> List[Dict]:
-    # Semantic Registry: Explicitly define known heading IDs
-    valid_heading_ids = {'Heading1', 'Heading2', 'Heading3', 'Heading4', 'Heading5', 'Heading6'}
-    
-    tree = []
-    current_parent = {"Header": "Introduction", "Style": "Normal", "Children": []}
-    tree.append(current_parent)
-    
-    for item in ledger_data:
-        # Use Registry + Heuristic for maximum reliability
-        is_heading = (item['Style'] in valid_heading_ids) or \
-                     ("heading" in item['Style'].lower()) or \
-                     (item['Content'][0:2].isdigit() and "." in item['Content'])
-        
-        if is_heading:
-            current_parent = {"Header": item['Content'], "Style": item['Style'], "Children": []}
-            tree.append(current_parent)
-        elif item['Content'].strip():
-            current_parent["Children"].append(item)
-    return tree
-
 def get_semantic_rank(style_name: str) -> str:
     s = style_name.lower()
     if "heading" in s: return "Heading"
@@ -100,61 +79,39 @@ def get_semantic_rank(style_name: str) -> str:
     if "normal" in s: return "Body_Text"
     return "Other"
 
-def to_markdown(tree: List[Dict]) -> str:
-    md = ""
-    for section in tree:
-        style_str = str(section['Style']).lower()
-        level = style_str.replace('heading ', '')
-        prefix = "#" * int(level) if level.isdigit() else "###"
-        md += f"{prefix} {section['Header']}\n\n"
-        for child in section['Children']:
-            md += f"- {child['Content']}\n" if child.get('State') != 'Native_Narrative' else f"{child['Content']}\n\n"
-        md += "\n---\n\n"
-    return md
-
 def main():
     st.set_page_config(layout="wide", page_title="Chestnut TRACE")
-    st.title("Chestnut TRACE: Semantic Reconstruction Engine")
+    st.title("Chestnut TRACE: Comparative Governance Engine")
     
-    uploaded_file = st.file_uploader("Upload .docx for Reconstruction", type=["docx"])
+    uploaded_files = st.file_uploader("Upload SOPs for Comparison", type=["docx"], accept_multiple_files=True)
     
-    if uploaded_file:
-        compiler = StructuralCompiler(uploaded_file)
-        root = compiler.build_dag('word/document.xml')
-        ledger = {"Validated": [], "Quarantined": []}
-        compiler.bifurcate(root, ledger)
-        
-        # Governance Pulse: Unfiltered to maintain sequence indices
-        df_valid = pd.DataFrame(ledger["Validated"])
-        
-        # Reconstruction: Filtered to ensure clean semantic output
-        noise = ["Page", "Document No.:", "Uncontrolled when printed", "fda.hhs.gov"]
-        filtered_ledger = [i for i in ledger["Validated"] if not any(n in i['Content'] for n in noise)]
-        
-        tree = reconstruct_hierarchical_json(filtered_ledger)
-        md_output = to_markdown(tree)
-        
-        tab1, tab2, tab3 = st.tabs(["Governance Pulse", "Reconstructed Markdown", "Export Artifacts"])
-        
-        with tab1:
-            st.subheader("Semantic Governance Pulse")
-            df_valid['Category'] = df_valid['Style'].apply(get_semantic_rank)
-            chart = alt.Chart(df_valid.reset_index()).mark_circle(size=60).encode(
-                x=alt.X('index', title='Sequence'),
-                y=alt.Y('Category', sort=['Heading', 'Body_Text', 'Table_Atom', 'Other']),
-                color='Category', tooltip=['index', 'Style', 'Content']
-            ).interactive()
-            st.altair_chart(chart, use_container_width=True)
+    if uploaded_files:
+        all_data = []
+        for file in uploaded_files:
+            compiler = StructuralCompiler(file)
+            root = compiler.build_dag('word/document.xml')
+            ledger = {"Validated": [], "Quarantined": []}
+            compiler.bifurcate(root, ledger)
             
-        with tab2:
-            st.subheader("Semantic Markdown Preview")
-            st.markdown(md_output)
+            df = pd.DataFrame(ledger["Validated"])
+            df['Source'] = file.name
+            df['Category'] = df['Style'].apply(get_semantic_rank)
+            all_data.append(df)
             
-        with tab3:
-            st.subheader("Export Artifacts")
-            c1, c2 = st.columns(2)
-            c1.download_button("JSON Artifact", json.dumps(tree, indent=4), "tree.json")
-            c2.download_button("Markdown Artifact", md_output, "reconstruction.md")
+        combined_df = pd.concat(all_data, ignore_index=True)
+        
+        # Comparative Controls
+        selected_sources = st.multiselect("Select SOPs to Compare", combined_df['Source'].unique(), default=combined_df['Source'].unique())
+        filtered_df = combined_df[combined_df['Source'].isin(selected_sources)]
+        
+        st.subheader("Comparative Semantic Governance Pulse")
+        chart = alt.Chart(filtered_df.reset_index()).mark_circle(size=80).encode(
+            x=alt.X('index', title='Document Sequence'),
+            y=alt.Y('Category', sort=['Heading', 'Body_Text', 'Table_Atom', 'Other']),
+            color='Source',
+            tooltip=['Source', 'Category', 'Style', 'Content']
+        ).interactive()
+        st.altair_chart(chart, use_container_width=True)
 
 if __name__ == "__main__":
     main()
