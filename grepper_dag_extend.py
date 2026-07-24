@@ -81,6 +81,20 @@ def reconstruct_hierarchical_json(ledger_data: List[Dict]) -> List[Dict]:
             current_parent["Children"].append(item)
     return tree
 
+def to_markdown(tree: List[Dict]) -> str:
+    md = ""
+    for section in tree:
+        level = section['Style'].lower().replace('heading ', '')
+        prefix = "#" * int(level) if level.isdigit() else "###"
+        md += f"{prefix} {section['Header']}\n\n"
+        for child in section['Children']:
+            if child['State'] == 'Native_Narrative':
+                md += f"{child['Content']}\n\n"
+            else:
+                md += f"- {child['Content']}\n"
+        md += "\n"
+    return md
+
 def main():
     st.set_page_config(layout="wide", page_title="Chestnut TRACE: Finalized")
     st.title("Chestnut TRACE: Semantic Reconstruction Engine")
@@ -93,26 +107,28 @@ def main():
         ledger = {"Validated": [], "Quarantined": []}
         compiler.bifurcate(root, ledger)
         
-        # 1. Governance Pulse
-        df_valid = pd.DataFrame(ledger["Validated"])
-        st.subheader("Governance Pulse")
-        df_valid['Style_Idx'] = df_valid['Style'].astype('category').cat.codes
-        st.line_chart(df_valid['Style_Idx'])
+        tree = reconstruct_hierarchical_json(ledger["Validated"])
+        md_output = to_markdown(tree)
         
-        # 2. Finalization Export
-        if st.button("Finalize Artifact: Export as Hierarchical JSON"):
-            tree = reconstruct_hierarchical_json(ledger["Validated"])
-            json_artifact = json.dumps(tree, indent=4)
-            st.download_button("Download Hierarchical JSON", json_artifact, "tree_reconstruction.json", "application/json")
-            st.success("Reconstruction complete. Deterministic artifact ready.")
-
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("Validated Ledger")
-            st.dataframe(df_valid, use_container_width=True)
-        with col2:
-            st.subheader("Quarantine Ledger")
-            st.data_editor(pd.DataFrame(ledger["Quarantined"]), use_container_width=True)
+        tab1, tab2, tab3 = st.tabs(["Governance Pulse", "Reconstructed Markdown", "Export Artifacts"])
+        
+        with tab1:
+            st.subheader("Semantic Governance Pulse")
+            df_valid = pd.DataFrame(ledger["Validated"])
+            df_valid['Style_Idx'] = df_valid['Style'].astype('category').cat.codes
+            st.line_chart(df_valid['Style_Idx'])
+            
+        with tab2:
+            st.subheader("Semantic Markdown Preview")
+            st.markdown(md_output)
+            
+        with tab3:
+            st.subheader("Download Artifacts")
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.download_button("Download Hierarchical JSON", json.dumps(tree, indent=4), "tree.json")
+            with col_b:
+                st.download_button("Download Markdown Doc", md_output, "reconstruction.md")
 
 if __name__ == "__main__":
     main()
