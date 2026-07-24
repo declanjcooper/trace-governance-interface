@@ -20,7 +20,6 @@ class StructuralCompiler:
         self.archive = zipfile.ZipFile(doc_path)
         self.ns = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
         self.styles = self._load_styles()
-        # Matrix includes Text Box content (txbxContent) for MDSAP templates
         self.schema_matrix = {
             "document/body/p/r/t": "Native_Narrative",
             "document/body/tbl/tr/tc/p/r/t": "Native_Tabular",
@@ -74,22 +73,22 @@ class StructuralCompiler:
             self.bifurcate(child, ledger)
 
 def reconstruct_hierarchical_json(ledger_data: List[Dict]) -> List[Dict]:
+    # Semantic Boundary Filter
+    noise = ["Page", "Document No.:", "Uncontrolled when printed", "fda.hhs.gov"]
+    clean_data = [i for i in ledger_data if not any(n in i['Content'] for n in noise)]
+    
     tree = []
-    current_parent = {"Header": "Unstructured Content", "Style": "Normal", "Children": []}
+    current_parent = {"Header": "Introduction", "Style": "Normal", "Children": []}
     tree.append(current_parent)
     
-    for item in ledger_data:
-        # Improved fragment merging: Treat very short content as part of the previous header if it lacks style
-        is_heading = "heading" in item['Style'].lower() or (item['Content'].isupper() and 0 < len(item['Content']) < 50)
+    for item in clean_data:
+        # Strict Header: Matches "Heading" style OR numeric prefix (e.g., "1. ")
+        is_heading = ("heading" in item['Style'].lower()) or (item['Content'][0:2].isdigit() and "." in item['Content'])
         
         if is_heading:
-            # Merge logic: If existing header is empty, replace it; otherwise add new
-            if not current_parent['Header'] or len(current_parent['Header']) > 50:
-                current_parent = {"Header": item['Content'], "Style": item['Style'], "Children": []}
-                tree.append(current_parent)
-            else:
-                current_parent['Header'] += f" {item['Content']}"
-        else:
+            current_parent = {"Header": item['Content'], "Style": item['Style'], "Children": []}
+            tree.append(current_parent)
+        elif item['Content'].strip():
             current_parent["Children"].append(item)
     return tree
 
@@ -131,12 +130,11 @@ def main():
         
         with tab1:
             st.subheader("Semantic Governance Pulse")
-            st.info("The Governance Pulse monitors document health. Validated atoms are plotted below.")
+            st.info("Filtering structural metadata noise and mapping headings by numeric index.")
             if not ledger["Validated"]:
-                st.warning("No validated semantic content found. Check Quarantine Ledger for path anomalies.")
+                st.warning("No validated semantic content found.")
                 if ledger["Quarantined"]:
-                    st.error(f"Quarantine Ledger: {len(ledger['Quarantined'])} anomalies detected.")
-                    st.dataframe(pd.DataFrame(ledger["Quarantined"]), use_container_width=True)
+                    st.dataframe(pd.DataFrame(ledger["Quarantined"]))
             else:
                 df_valid = pd.DataFrame(ledger["Validated"])
                 df_valid['Category'] = df_valid['Style'].apply(get_semantic_rank)
@@ -153,7 +151,6 @@ def main():
             
         with tab3:
             st.subheader("Export Artifacts")
-            st.write("Download the reconstructed semantic tree or the flat markdown document.")
             c1, c2 = st.columns(2)
             c1.download_button("JSON Artifact", json.dumps(tree, indent=4), "tree.json")
             c2.download_button("Markdown Artifact", md_output, "reconstruction.md")
