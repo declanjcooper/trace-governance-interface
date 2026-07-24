@@ -20,9 +20,11 @@ class StructuralCompiler:
         self.archive = zipfile.ZipFile(doc_path)
         self.ns = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
         self.styles = self._load_styles()
+        # Expanded schema to include Text Box content nodes
         self.schema_matrix = {
             "document/body/p/r/t": "Native_Narrative",
-            "document/body/tbl/tr/tc/p/r/t": "Native_Tabular"
+            "document/body/tbl/tr/tc/p/r/t": "Native_Tabular",
+            "txbxContent/p/r/t": "Native_Narrative"
         }
 
     def _load_styles(self):
