@@ -20,7 +20,7 @@ class StructuralCompiler:
         self.archive = zipfile.ZipFile(doc_path)
         self.ns = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
         self.styles = self._load_styles()
-        # Expanded schema to include Text Box content nodes
+        # Matrix includes Text Box content (txbxContent) for MDSAP templates
         self.schema_matrix = {
             "document/body/p/r/t": "Native_Narrative",
             "document/body/tbl/tr/tc/p/r/t": "Native_Tabular",
@@ -75,17 +75,20 @@ class StructuralCompiler:
 
 def reconstruct_hierarchical_json(ledger_data: List[Dict]) -> List[Dict]:
     tree = []
-    root_container = {"Header": "Unstructured Content", "Style": "Normal", "Children": []}
-    current_parent = root_container
+    current_parent = {"Header": "Unstructured Content", "Style": "Normal", "Children": []}
     tree.append(current_parent)
     
     for item in ledger_data:
-        is_heading = "heading" in item['Style'].lower() or \
-                     (item['Content'].isupper() and 0 < len(item['Content']) < 60)
+        # Improved fragment merging: Treat very short content as part of the previous header if it lacks style
+        is_heading = "heading" in item['Style'].lower() or (item['Content'].isupper() and 0 < len(item['Content']) < 50)
         
         if is_heading:
-            current_parent = {"Header": item['Content'], "Style": item['Style'], "Children": []}
-            tree.append(current_parent)
+            # Merge logic: If existing header is empty, replace it; otherwise add new
+            if not current_parent['Header'] or len(current_parent['Header']) > 50:
+                current_parent = {"Header": item['Content'], "Style": item['Style'], "Children": []}
+                tree.append(current_parent)
+            else:
+                current_parent['Header'] += f" {item['Content']}"
         else:
             current_parent["Children"].append(item)
     return tree
@@ -105,18 +108,15 @@ def to_markdown(tree: List[Dict]) -> str:
         prefix = "#" * int(level) if level.isdigit() else "###"
         md += f"{prefix} {section['Header']}\n\n"
         for child in section['Children']:
-            if child.get('State') == 'Native_Narrative':
-                md += f"{child['Content']}\n\n"
-            else:
-                md += f"- {child['Content']}\n"
+            md += f"- {child['Content']}\n" if child.get('State') != 'Native_Narrative' else f"{child['Content']}\n\n"
         md += "\n---\n\n"
     return md
 
 def main():
-    st.set_page_config(layout="wide", page_title="Chestnut TRACE: Finalized")
+    st.set_page_config(layout="wide", page_title="Chestnut TRACE")
     st.title("Chestnut TRACE: Semantic Reconstruction Engine")
     
-    uploaded_file = st.file_uploader("Upload .docx", type=["docx"])
+    uploaded_file = st.file_uploader("Upload .docx for Reconstruction", type=["docx"])
     
     if uploaded_file:
         compiler = StructuralCompiler(uploaded_file)
@@ -131,34 +131,32 @@ def main():
         
         with tab1:
             st.subheader("Semantic Governance Pulse")
+            st.info("The Governance Pulse monitors document health. Validated atoms are plotted below.")
             if not ledger["Validated"]:
-                st.warning("No validated semantic content found.")
+                st.warning("No validated semantic content found. Check Quarantine Ledger for path anomalies.")
                 if ledger["Quarantined"]:
                     st.error(f"Quarantine Ledger: {len(ledger['Quarantined'])} anomalies detected.")
                     st.dataframe(pd.DataFrame(ledger["Quarantined"]), use_container_width=True)
             else:
                 df_valid = pd.DataFrame(ledger["Validated"])
-                if 'Style' in df_valid.columns:
-                    df_valid['Category'] = df_valid['Style'].apply(get_semantic_rank)
-                    chart = alt.Chart(df_valid.reset_index()).mark_circle(size=80).encode(
-                        x=alt.X('index', title='Atom Sequence'),
-                        y=alt.Y('Category', sort=['Heading', 'Body_Text', 'Table_Atom', 'Other']),
-                        color='Category',
-                        tooltip=['index', 'Style', 'Content']
-                    ).interactive()
-                    st.altair_chart(chart, use_container_width=True)
+                df_valid['Category'] = df_valid['Style'].apply(get_semantic_rank)
+                chart = alt.Chart(df_valid.reset_index()).mark_circle(size=60).encode(
+                    x=alt.X('index', title='Sequence'),
+                    y=alt.Y('Category', sort=['Heading', 'Body_Text', 'Table_Atom', 'Other']),
+                    color='Category', tooltip=['index', 'Style', 'Content']
+                ).interactive()
+                st.altair_chart(chart, use_container_width=True)
             
         with tab2:
             st.subheader("Semantic Markdown Preview")
             st.markdown(md_output)
             
         with tab3:
-            st.subheader("Download Artifacts")
-            col_a, col_b = st.columns(2)
-            with col_a:
-                st.download_button("Download Hierarchical JSON", json.dumps(tree, indent=4), "tree.json")
-            with col_b:
-                st.download_button("Download Markdown Doc", md_output, "reconstruction.md")
+            st.subheader("Export Artifacts")
+            st.write("Download the reconstructed semantic tree or the flat markdown document.")
+            c1, c2 = st.columns(2)
+            c1.download_button("JSON Artifact", json.dumps(tree, indent=4), "tree.json")
+            c2.download_button("Markdown Artifact", md_output, "reconstruction.md")
 
 if __name__ == "__main__":
     main()
