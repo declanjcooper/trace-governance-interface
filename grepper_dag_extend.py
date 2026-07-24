@@ -83,35 +83,43 @@ def main():
     st.set_page_config(layout="wide", page_title="Chestnut TRACE")
     st.title("Chestnut TRACE: Comparative Governance Engine")
     
-    uploaded_files = st.file_uploader("Upload SOPs for Comparison", type=["docx"], accept_multiple_files=True)
+    mode = st.radio("Audit Mode", ["Single SOP Audit", "Template vs. Variant"])
     
-    if uploaded_files:
-        all_data = []
-        for file in uploaded_files:
-            compiler = StructuralCompiler(file)
-            root = compiler.build_dag('word/document.xml')
-            ledger = {"Validated": [], "Quarantined": []}
-            compiler.bifurcate(root, ledger)
+    if mode == "Single SOP Audit":
+        uploaded_files = st.file_uploader("Upload SOPs for Comparison", type=["docx"], accept_multiple_files=True)
+        if uploaded_files:
+            all_data = []
+            for file in uploaded_files:
+                compiler = StructuralCompiler(file)
+                root = compiler.build_dag('word/document.xml')
+                ledger = {"Validated": [], "Quarantined": []}
+                compiler.bifurcate(root, ledger)
+                df = pd.DataFrame(ledger["Validated"])
+                df['Source'] = file.name
+                df['Category'] = df['Style'].apply(get_semantic_rank)
+                all_data.append(df)
+            combined_df = pd.concat(all_data, ignore_index=True)
             
-            df = pd.DataFrame(ledger["Validated"])
-            df['Source'] = file.name
-            df['Category'] = df['Style'].apply(get_semantic_rank)
-            all_data.append(df)
+            selected_sources = st.multiselect("Select SOPs to Compare", combined_df['Source'].unique(), default=combined_df['Source'].unique())
+            filtered_df = combined_df[combined_df['Source'].isin(selected_sources)]
             
-        combined_df = pd.concat(all_data, ignore_index=True)
+            chart = alt.Chart(filtered_df.reset_index()).mark_circle(size=80).encode(
+                x=alt.X('index', title='Atom Sequence (by file)'),
+                y=alt.Y('Category', sort=['Heading', 'Body_Text', 'Table_Atom', 'Other']),
+                color='Source', column='Source', tooltip=['Source', 'Category', 'Style', 'Content']
+            ).properties(width=300).interactive()
+            st.altair_chart(chart, use_container_width=True)
+
+    elif mode == "Template vs. Variant":
+        col1, col2 = st.columns(2)
+        ref_file = col1.file_uploader("Upload Master Template (Reference)", type=["docx"])
+        var_files = col2.file_uploader("Upload SOPs to Audit (Variants)", type=["docx"], accept_multiple_files=True)
         
-        # Comparative Controls
-        selected_sources = st.multiselect("Select SOPs to Compare", combined_df['Source'].unique(), default=combined_df['Source'].unique())
-        filtered_df = combined_df[combined_df['Source'].isin(selected_sources)]
-        
-        st.subheader("Comparative Semantic Governance Pulse")
-        chart = alt.Chart(filtered_df.reset_index()).mark_circle(size=80).encode(
-            x=alt.X('index', title='Document Sequence'),
-            y=alt.Y('Category', sort=['Heading', 'Body_Text', 'Table_Atom', 'Other']),
-            color='Source',
-            tooltip=['Source', 'Category', 'Style', 'Content']
-        ).interactive()
-        st.altair_chart(chart, use_container_width=True)
+        if ref_file and var_files:
+            # Logic: Show Reference and Variants side-by-side for Structural Drift audit
+            st.info("Template Audit Active: Comparing against Master Reference.")
+            # ... (Implementation of comparison visualization)
+            st.warning("Audit engine awaiting structural diff configuration.")
 
 if __name__ == "__main__":
     main()
