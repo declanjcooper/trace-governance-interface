@@ -73,12 +73,19 @@ class StructuralCompiler:
             self.bifurcate(child, ledger)
 
 def reconstruct_hierarchical_json(ledger_data: List[Dict]) -> List[Dict]:
+    # Semantic Registry: Explicitly define known heading IDs
+    valid_heading_ids = {'Heading1', 'Heading2', 'Heading3', 'Heading4', 'Heading5', 'Heading6'}
+    
     tree = []
     current_parent = {"Header": "Introduction", "Style": "Normal", "Children": []}
     tree.append(current_parent)
     
     for item in ledger_data:
-        is_heading = ("heading" in item['Style'].lower()) or (item['Content'][0:2].isdigit() and "." in item['Content'])
+        # Use Registry + Heuristic for maximum reliability
+        is_heading = (item['Style'] in valid_heading_ids) or \
+                     ("heading" in item['Style'].lower()) or \
+                     (item['Content'][0:2].isdigit() and "." in item['Content'])
+        
         if is_heading:
             current_parent = {"Header": item['Content'], "Style": item['Style'], "Children": []}
             tree.append(current_parent)
@@ -117,10 +124,10 @@ def main():
         ledger = {"Validated": [], "Quarantined": []}
         compiler.bifurcate(root, ledger)
         
-        # Governance Pulse uses UNFILTERED data for sequence integrity
+        # Governance Pulse: Unfiltered to maintain sequence indices
         df_valid = pd.DataFrame(ledger["Validated"])
         
-        # Reconstruction uses FILTERED data for clean output
+        # Reconstruction: Filtered to ensure clean semantic output
         noise = ["Page", "Document No.:", "Uncontrolled when printed", "fda.hhs.gov"]
         filtered_ledger = [i for i in ledger["Validated"] if not any(n in i['Content'] for n in noise)]
         
