@@ -81,6 +81,11 @@ def get_semantic_rank(style_name: str) -> str:
 
 def main():
     st.set_page_config(layout="wide", page_title="Chestnut TRACE")
+    
+    st.sidebar.title("Chestnut System")
+    st.sidebar.warning("Status: EVALUATIVE ENGINE (v1.0)")
+    st.sidebar.info("All outputs derived directly from active .docx XML parsing.")
+    
     st.title("Chestnut TRACE: Comparative Governance Engine")
     
     mode = st.radio("Audit Mode", ["Single SOP Audit", "Template vs. Variant"])
