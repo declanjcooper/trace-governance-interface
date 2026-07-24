@@ -10,7 +10,7 @@ class ChestnutNode:
     tag: str
     path: str
     text: str = ""
-    style_id: str = None  # Added style context
+    style_id: str = "Normal" 
     children: List['ChestnutNode'] = field(default_factory=list)
 
 class StructuralCompiler:
@@ -24,14 +24,15 @@ class StructuralCompiler:
         }
 
     def _load_styles(self) -> Dict[str, str]:
-        """Maps Style IDs to their semantic names from styles.xml."""
         styles = {}
-        with self.archive.open('word/styles.xml') as f:
-            root = ET.parse(f).getroot()
-            for style in root.findall('.//w:style', self.ns):
-                s_id = style.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}styleId')
-                name = style.find('.//w:name', self.ns)
-                styles[s_id] = name.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val') if name is not None else s_id
+        try:
+            with self.archive.open('word/styles.xml') as f:
+                root = ET.parse(f).getroot()
+                for style in root.findall('.//w:style', self.ns):
+                    s_id = style.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}styleId')
+                    name = style.find('.//w:name', self.ns)
+                    styles[s_id] = name.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val') if name is not None else s_id
+        except: pass
         return styles
 
     def build_dag(self, part_name: str) -> ChestnutNode:
@@ -39,11 +40,10 @@ class StructuralCompiler:
             root = ET.parse(f).getroot()
             return self._traverse_and_build(root, "root")
 
-    def _traverse_and_build(self, element, current_path: str, current_style: str = None) -> ChestnutNode:
+    def _traverse_and_build(self, element, current_path: str, current_style: str = "Normal") -> ChestnutNode:
         tag = element.tag.split('}')[-1]
         new_path = f"{current_path}/{tag}"
         
-        # Resolve Style Context
         if tag == 'p':
             pPr = element.find('w:pPr', self.ns)
             if pPr is not None:
@@ -66,38 +66,36 @@ class StructuralCompiler:
                 ledger["Validated"].append({"State": state, "Style": node.style_id, "Path": node.path, "Content": node.text})
                 is_native = True
                 break
-        
         if not is_native and node.tag == 't' and node.text:
             ledger["Quarantined"].append({"Path": node.path, "Content": node.text})
-            
         for child in node.children:
             self.bifurcate(child, ledger)
 
 def main():
-    st.set_page_config(layout="wide", page_title="Chestnut TRACE: Governance Engine")
-    st.title("Deterministic Governance Engine: Semantic Resolution")
+    st.set_page_config(layout="wide", page_title="Chestnut TRACE: Governance Pulse")
+    st.title("Chestnut TRACE: Governance Pulse Engine")
     
     uploaded_file = st.file_uploader("Upload .docx", type=["docx"])
     
     if uploaded_file:
         compiler = StructuralCompiler(uploaded_file)
         root = compiler.build_dag('word/document.xml')
-        
         ledger = {"Validated": [], "Quarantined": []}
         compiler.bifurcate(root, ledger)
         
+        # Visualize the Pulse
+        df_valid = pd.DataFrame(ledger["Validated"])
+        if not df_valid.empty:
+            st.subheader("Semantic Governance Pulse")
+            # Convert Style names to numerical sequence for the pulse chart
+            df_valid['Style_Idx'] = df_valid['Style'].astype('category').cat.codes
+            st.line_chart(df_valid['Style_Idx'])
+        
         col1, col2 = st.columns(2)
         with col1:
-            st.subheader("Validated Ledger (SSOT)")
-            df_valid = pd.DataFrame(ledger["Validated"])
             st.dataframe(df_valid, use_container_width=True)
-            
         with col2:
-            st.subheader("Reconstruction Queue (Quarantine)")
-            df_q = pd.DataFrame(ledger["Quarantined"])
-            edited_df = st.data_editor(df_q, use_container_width=True)
-            if st.button("Commit Governance Action"):
-                st.success("Governance rules updated.")
+            st.data_editor(pd.DataFrame(ledger["Quarantined"]), use_container_width=True)
 
 if __name__ == "__main__":
     main()
