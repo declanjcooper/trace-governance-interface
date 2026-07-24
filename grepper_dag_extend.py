@@ -16,15 +16,12 @@ class ChestnutNode:
     children: List['ChestnutNode'] = field(default_factory=list)
 
 class StructuralCompiler:
+    # ... (Keep existing StructuralCompiler methods) ...
     def __init__(self, doc_path):
         self.archive = zipfile.ZipFile(doc_path)
         self.ns = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
         self.styles = self._load_styles()
-        self.schema_matrix = {
-            "document/body/p/r/t": "Native_Narrative",
-            "document/body/tbl/tr/tc/p/r/t": "Native_Tabular",
-            "txbxContent/p/r/t": "Native_Narrative"
-        }
+        self.schema_matrix = {"document/body/p/r/t": "Native_Narrative", "document/body/tbl/tr/tc/p/r/t": "Native_Tabular", "txbxContent/p/r/t": "Native_Narrative"}
 
     def _load_styles(self):
         styles = {}
@@ -52,7 +49,6 @@ class StructuralCompiler:
                 pStyle = pPr.find('w:pStyle', self.ns)
                 if pStyle is not None:
                     current_style = pStyle.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val')
-        
         text = element.text.strip() if element.text and element.text.strip() else ""
         node = ChestnutNode(tag=tag, path=new_path, text=text, style_id=self.styles.get(current_style, current_style))
         for child in element:
@@ -79,78 +75,63 @@ def get_semantic_rank(style_name: str) -> str:
     if "normal" in s: return "Body_Text"
     return "Other"
 
+def to_markdown(ledger_data: List[Dict]) -> str:
+    md = ""
+    for item in ledger_data:
+        if "heading" in item['Style'].lower(): md += f"### {item['Content']}\n\n"
+        else: md += f"{item['Content']}\n\n"
+    return md
+
 def main():
     st.set_page_config(layout="wide", page_title="Chestnut TRACE")
-    
-    st.sidebar.title("Chestnut System")
     st.sidebar.warning("Status: EVALUATIVE ENGINE (v1.0)")
-    st.sidebar.info("All outputs derived directly from active .docx XML parsing.")
-    
     st.title("Chestnut TRACE: Comparative Governance Engine")
     
     mode = st.radio("Audit Mode", ["Single SOP Audit", "Template vs. Variant"])
     
+    # Store processed data in session state for tab access
+    if 'processed_data' not in st.session_state: st.session_state.processed_data = {}
+
     if mode == "Single SOP Audit":
-        uploaded_files = st.file_uploader("Upload SOPs for Comparison", type=["docx"], accept_multiple_files=True)
+        uploaded_files = st.file_uploader("Upload SOPs", type=["docx"], accept_multiple_files=True)
         if uploaded_files:
-            all_data = []
             for file in uploaded_files:
                 compiler = StructuralCompiler(file)
                 root = compiler.build_dag('word/document.xml')
                 ledger = {"Validated": [], "Quarantined": []}
                 compiler.bifurcate(root, ledger)
-                df = pd.DataFrame(ledger["Validated"])
-                df['Source'] = file.name
-                df['Category'] = df['Style'].apply(get_semantic_rank)
-                all_data.append(df)
-            combined_df = pd.concat(all_data, ignore_index=True)
-            
-            selected_sources = st.multiselect("Select SOPs to Compare", combined_df['Source'].unique(), default=combined_df['Source'].unique())
-            filtered_df = combined_df[combined_df['Source'].isin(selected_sources)]
-            
-            chart = alt.Chart(filtered_df.reset_index()).mark_circle(size=80).encode(
-                x=alt.X('index', title='Atom Sequence'),
-                y=alt.Y('Category', sort=['Heading', 'Body_Text', 'Table_Atom', 'Other']),
-                color='Source', column='Source', tooltip=['Source', 'Category', 'Style', 'Content']
-            ).properties(width=300).interactive()
-            st.altair_chart(chart, use_container_width=True)
+                st.session_state.processed_data[file.name] = ledger["Validated"]
 
     elif mode == "Template vs. Variant":
         col1, col2 = st.columns(2)
-        ref_file = col1.file_uploader("Upload Master Template (Reference)", type=["docx"])
-        var_files = col2.file_uploader("Upload SOPs to Audit (Variants)", type=["docx"], accept_multiple_files=True)
-        
+        ref_file = col1.file_uploader("Master Template", type=["docx"])
+        var_files = col2.file_uploader("Variants", type=["docx"], accept_multiple_files=True)
         if ref_file and var_files:
-            all_data = []
-            # Reference
-            ref_compiler = StructuralCompiler(ref_file)
-            root = ref_compiler.build_dag('word/document.xml')
-            ledger = {"Validated": [], "Quarantined": []}
-            ref_compiler.bifurcate(root, ledger)
-            df_ref = pd.DataFrame(ledger["Validated"])
-            df_ref['Source'] = f"REF: {ref_file.name}"
-            df_ref['Category'] = df_ref['Style'].apply(get_semantic_rank)
-            all_data.append(df_ref)
-            
-            # Variants
-            for file in var_files:
-                compiler = StructuralCompiler(file)
+            for f in [ref_file] + var_files:
+                compiler = StructuralCompiler(f)
                 root = compiler.build_dag('word/document.xml')
                 ledger = {"Validated": [], "Quarantined": []}
                 compiler.bifurcate(root, ledger)
-                df = pd.DataFrame(ledger["Validated"])
-                df['Source'] = f"VAR: {file.name}"
-                df['Category'] = df['Style'].apply(get_semantic_rank)
-                all_data.append(df)
-            
-            combined_df = pd.concat(all_data, ignore_index=True)
-            st.subheader("Comparative Structural Audit")
-            chart = alt.Chart(combined_df.reset_index()).mark_circle(size=80).encode(
-                x=alt.X('index', title='Atom Sequence'),
-                y=alt.Y('Category', sort=['Heading', 'Body_Text', 'Table_Atom', 'Other']),
-                color='Source', column='Source', tooltip=['Source', 'Category', 'Style', 'Content']
-            ).properties(width=250).interactive()
+                st.session_state.processed_data[f.name] = ledger["Validated"]
+
+    # Drill-Down Logic
+    if st.session_state.processed_data:
+        selected = st.selectbox("Drill down into specific file", list(st.session_state.processed_data.keys()))
+        data = st.session_state.processed_data[selected]
+        
+        tab1, tab2, tab3 = st.tabs(["Pulse Graph", "Markdown", "JSON"])
+        with tab1:
+            df = pd.DataFrame(data)
+            df['Category'] = df['Style'].apply(get_semantic_rank)
+            chart = alt.Chart(df.reset_index()).mark_circle(size=80).encode(
+                x='index', y=alt.Y('Category', sort=['Heading', 'Body_Text', 'Table_Atom', 'Other']),
+                color='Category', tooltip=['Style', 'Content']
+            ).interactive()
             st.altair_chart(chart, use_container_width=True)
+        with tab2:
+            st.markdown(to_markdown(data))
+        with tab3:
+            st.json(data)
 
 if __name__ == "__main__":
     main()
