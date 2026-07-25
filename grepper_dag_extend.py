@@ -1,6 +1,6 @@
 """
-Chestnut TRACE: Comparative Governance Engine (v2.0)
-Deterministic Structural Compiler with Matrix-Based Semantic Collapse
+Chestnut TRACE: Comparative Governance Engine (v2.5)
+Deterministic Structural Compiler with Matrix State Collapse & JSON-LD Graph Export
 
 Dependencies:
     pip install streamlit lxml numpy pandas altair
@@ -21,7 +21,7 @@ import streamlit as st
 NS_W: str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 NS_MAP: Dict[str, str] = {"w": NS_W}
 
-# Tags that represent transient wrappers and should be ignored during path vector normalization
+# Tags representing transient wrappers to be stripped during path vector normalization
 TRANSIENT_TAGS: set[str] = {
     "smartTag",
     "hyperlink",
@@ -37,6 +37,7 @@ TRANSIENT_TAGS: set[str] = {
 class ChestnutNode:
     """DAG Node representing an OOXML structural element and its topological metadata."""
 
+    node_id: str
     tag: str
     path: str
     normalized_path: str
@@ -45,10 +46,11 @@ class ChestnutNode:
     depth: int = 0
     in_table: bool = False
     in_textbox: bool = False
+    parent_id: Optional[str] = None
     children: List["ChestnutNode"] = field(default_factory=list)
 
     def get_coordinate_vector(self) -> np.ndarray:
-        """Constructs an orthogonal coordinate vector representing the node's position.
+        """Constructs an orthogonal coordinate vector representing the node's topological position.
 
         Vector: v = [Depth, In_Table, In_Textbox, Is_Leaf]
         """
@@ -65,7 +67,7 @@ class ChestnutNode:
 
 
 class ResolutionMatrix:
-    """Observation Operator (R) that projects a structural coordinate vector v_node
+    """Observation Operator (R) that projects structural coordinate vector v_node
 
     into discrete semantic states via matrix transformation and Softmax evaluation.
     """
@@ -114,10 +116,12 @@ class StructuralCompiler:
     bifurcation using the Resolution Matrix operator.
     """
 
-    def __init__(self, doc_file: Any) -> None:
+    def __init__(self, doc_file: Any, doc_name: str) -> None:
+        self.doc_name: str = doc_name
         self.archive: zipfile.ZipFile = zipfile.ZipFile(doc_file)
         self.styles: Dict[str, str] = self._load_styles()
         self.resolution_matrix: ResolutionMatrix = ResolutionMatrix()
+        self.node_counter: int = 0
 
     def _load_styles(self) -> Dict[str, str]:
         """Extracts style ID to human-readable style name mappings from word/styles.xml."""
@@ -138,22 +142,29 @@ class StructuralCompiler:
             pass
         return styles
 
+    def _generate_node_id(self) -> str:
+        """Generates a unique deterministic node identifier for graph references."""
+        self.node_counter += 1
+        return f"urn:trace:doc:{self.doc_name}:node:{self.node_counter:04d}"
+
     def build_dag(self, part_name: str = "word/document.xml") -> ChestnutNode:
         """Parses an OOXML XML part into a root ChestnutNode DAG."""
         with self.archive.open(part_name) as f:
             root: ET._Element = ET.parse(f).getroot()
-            return self._traverse(root, current_path="", depth=0)
+            return self._traverse(root, current_path="", depth=0, parent_id=None)
 
     def _traverse(
         self,
         element: ET._Element,
         current_path: str,
         depth: int,
+        parent_id: Optional[str],
         inherited_style: str = "Normal",
         in_table: bool = False,
         in_textbox: bool = False,
     ) -> ChestnutNode:
         tag: str = element.tag.split("}")[-1] if isinstance(element.tag, str) else ""
+        node_id: str = self._generate_node_id()
 
         # Scope Context Updates
         if tag == "tbl":
@@ -161,7 +172,7 @@ class StructuralCompiler:
         elif tag == "txbxContent":
             in_textbox = True
 
-        # Style Precedence Resolution (Run Style > Paragraph Style > Inherited Style)
+        # Style Precedence Resolution
         node_style: str = inherited_style
         if tag == "p":
             p_style: Optional[ET._Element] = element.find("w:pPr/w:pStyle", NS_MAP)
@@ -192,6 +203,7 @@ class StructuralCompiler:
 
         resolved_style: str = self.styles.get(node_style, node_style)
         node: ChestnutNode = ChestnutNode(
+            node_id=node_id,
             tag=tag,
             path=raw_path,
             normalized_path=normalized_path,
@@ -200,6 +212,7 @@ class StructuralCompiler:
             depth=depth,
             in_table=in_table,
             in_textbox=in_textbox,
+            parent_id=parent_id,
         )
 
         # Build child DAG recursively
@@ -210,6 +223,7 @@ class StructuralCompiler:
                         child,
                         current_path=raw_path,
                         depth=depth + 1,
+                        parent_id=node_id,
                         inherited_style=node_style,
                         in_table=in_table,
                         in_textbox=in_textbox,
@@ -226,11 +240,14 @@ class StructuralCompiler:
             state, confidence = self.resolution_matrix.collapse(node)
 
             record: Dict[str, Any] = {
+                "NodeID": node.node_id,
+                "ParentID": node.parent_id,
                 "State": state,
                 "Confidence": round(confidence, 4),
                 "Style": node.style_id,
                 "Path": node.normalized_path,
                 "Content": node.text,
+                "TopologicalParity": -1 if node.in_table or node.in_textbox else 1,
             }
 
             if state != "Quarantined":
@@ -240,6 +257,58 @@ class StructuralCompiler:
 
         for child in node.children:
             self.bifurcate(child, ledger)
+
+
+# --- JSON-LD Knowledge Graph Exporter ---
+
+
+def export_to_json_ld(
+    file_name: str, validated_atoms: List[Dict[str, Any]]
+) -> str:
+    """Transforms TRACE validated atoms into a fully compliant JSON-LD Graph document
+
+    preserving tree-DAG edge relations, topological coordinates, and provenance.
+    """
+    graph_nodes: List[Dict[str, Any]] = []
+
+    for atom in validated_atoms:
+        schema_type: str = (
+            "DigitalDocumentSection"
+            if "Heading" in atom["Style"]
+            else "TextDigitalDocument"
+        )
+
+        ld_node: Dict[str, Any] = {
+            "@id": atom["NodeID"],
+            "@type": [schema_type, "trace:ChestnutAtom"],
+            "schema:name": atom["Style"],
+            "schema:text": atom["Content"],
+            "trace:normalizedPath": atom["Path"],
+            "trace:collapseConfidence": atom["Confidence"],
+            "trace:semanticState": atom["State"],
+            "trace:topologicalParity": atom["TopologicalParity"],
+        }
+
+        if atom.get("ParentID"):
+            ld_node["trace:hasParent"] = {"@id": atom["ParentID"]}
+
+        graph_nodes.append(ld_node)
+
+    json_ld_document: Dict[str, Any] = {
+        "@context": {
+            "schema": "https://schema.org/",
+            "trace": "https://trace.chestnut.org/schema/v2/",
+            "prov": "http://www.w3.org/ns/prov#",
+            "xsd": "http://www.w3.org/2001/XMLSchema#",
+        },
+        "@id": f"urn:trace:doc:{file_name}",
+        "@type": ["schema:DigitalDocument", "prov:Entity"],
+        "schema:name": file_name,
+        "trace:governanceStatus": "Validated",
+        "@graph": graph_nodes,
+    }
+
+    return json.dumps(json_ld_document, indent=2)
 
 
 # --- Helper Methods ---
@@ -279,7 +348,7 @@ def to_markdown(ledger_data: List[Dict[str, Any]]) -> str:
 
 def main() -> None:
     st.set_page_config(layout="wide", page_title="Chestnut TRACE Engine")
-    st.sidebar.warning("Status: MATRIX RESOLUTION ENGINE (v2.0)")
+    st.sidebar.warning("Status: GRAPH RESOLUTION ENGINE (v2.5)")
     st.title("Chestnut TRACE: Comparative Governance Engine")
 
     mode: str = st.radio(
@@ -297,7 +366,7 @@ def main() -> None:
         )
         if uploaded_files:
             for file in uploaded_files:
-                compiler = StructuralCompiler(file)
+                compiler = StructuralCompiler(file, file.name)
                 root = compiler.build_dag("word/document.xml")
                 ledger: Dict[str, List[Dict[str, Any]]] = {
                     "Validated": [],
@@ -317,7 +386,7 @@ def main() -> None:
 
         if ref_file and var_files:
             for file in [ref_file] + var_files:
-                compiler = StructuralCompiler(file)
+                compiler = StructuralCompiler(file, file.name)
                 root = compiler.build_dag("word/document.xml")
                 ledger: Dict[str, List[Dict[str, Any]]] = {
                     "Validated": [],
@@ -351,12 +420,13 @@ def main() -> None:
         )
         m3.metric("Governance Score", f"{governance_rate:.1f}%")
 
-        tab1, tab2, tab3, tab4 = st.tabs(
+        tab1, tab2, tab3, tab4, tab5 = st.tabs(
             [
                 "Pulse Graph",
                 "Markdown Preview",
                 "Validated Ledger",
                 "Quarantine Audit",
+                "Graph / JSON-LD Export",
             ]
         )
 
@@ -383,7 +453,7 @@ def main() -> None:
                         ),
                         color=alt.Color("Category:N", legend=alt.Legend(title="Category")),
                         size=alt.Size("Confidence:Q", scale=alt.Scale(domain=[0.2, 1.0]), title="Collapse Confidence"),
-                        tooltip=["Style", "Confidence", "Path", "Content"],
+                        tooltip=["NodeID", "Style", "Confidence", "TopologicalParity", "Path", "Content"],
                     )
                     .properties(height=380)
                     .interactive()
@@ -406,6 +476,23 @@ def main() -> None:
                 st.json(quarantined_data)
             else:
                 st.success("Zero anomalies detected. Document fully compliant.")
+
+        with tab5:
+            json_ld_str: str = export_to_json_ld(selected_file, validated_data)
+
+            st.subheader("Interoperable Knowledge Graph (JSON-LD)")
+            st.caption(
+                "Export structured RDF graph containing topological invariants, state collapse metrics, and explicit DAG parent-child pointers."
+            )
+
+            st.download_button(
+                label="Download JSON-LD Graph Document",
+                data=json_ld_str,
+                file_name=f"{selected_file}_trace_graph.jsonld",
+                mime="application/ld+json",
+            )
+
+            st.json(json_ld_str)
 
 
 if __name__ == "__main__":
