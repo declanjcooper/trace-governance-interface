@@ -1,137 +1,412 @@
-import streamlit as st
-import zipfile
-import lxml.etree as ET
-import pandas as pd
-import json
-import altair as alt
+"""
+Chestnut TRACE: Comparative Governance Engine (v2.0)
+Deterministic Structural Compiler with Matrix-Based Semantic Collapse
+
+Dependencies:
+    pip install streamlit lxml numpy pandas altair
+"""
+
 from dataclasses import dataclass, field
-from typing import List, Dict
+import json
+from typing import Any, Dict, List, Optional, Tuple
+import zipfile
+
+import altair as alt
+import lxml.etree as ET
+import numpy as np
+import pandas as pd
+import streamlit as st
+
+# WordprocessingML Namespace Constant
+NS_W: str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+NS_MAP: Dict[str, str] = {"w": NS_W}
+
+# Tags that represent transient wrappers and should be ignored during path vector normalization
+TRANSIENT_TAGS: set[str] = {
+    "smartTag",
+    "hyperlink",
+    "bookmarkStart",
+    "bookmarkEnd",
+    "proofErr",
+    "permStart",
+    "permEnd",
+}
+
 
 @dataclass
 class ChestnutNode:
+    """DAG Node representing an OOXML structural element and its topological metadata."""
+
     tag: str
     path: str
+    normalized_path: str
     text: str = ""
     style_id: str = "Normal"
-    children: List['ChestnutNode'] = field(default_factory=list)
+    depth: int = 0
+    in_table: bool = False
+    in_textbox: bool = False
+    children: List["ChestnutNode"] = field(default_factory=list)
+
+    def get_coordinate_vector(self) -> np.ndarray:
+        """Constructs an orthogonal coordinate vector representing the node's position.
+
+        Vector: v = [Depth, In_Table, In_Textbox, Is_Leaf]
+        """
+        is_leaf: float = 1.0 if not self.children else 0.0
+        return np.array(
+            [
+                float(self.depth),
+                1.0 if self.in_table else 0.0,
+                1.0 if self.in_textbox else 0.0,
+                is_leaf,
+            ],
+            dtype=np.float64,
+        )
+
+
+class ResolutionMatrix:
+    """Observation Operator (R) that projects a structural coordinate vector v_node
+
+    into discrete semantic states via matrix transformation and Softmax evaluation.
+    """
+
+    STATES: List[str] = ["Native_Narrative", "Native_Tabular", "Quarantined"]
+
+    def __init__(self) -> None:
+        # Basis projection matrix R:
+        # Maps [Depth, In_Table, In_Textbox, Is_Leaf] -> [Narrative, Tabular, Quarantined]
+        self.R: np.ndarray = np.array(
+            [
+                [-0.05, -0.80, 0.50, 0.80],   # Native_Narrative Weight Vector
+                [0.10, 1.50, -0.50, 0.80],    # Native_Tabular Weight Vector
+                [0.00, -0.20, -0.20, -0.50],  # Anomaly Baseline
+            ],
+            dtype=np.float64,
+        )
+
+    def collapse(
+        self, node: ChestnutNode, threshold: float = 0.20
+    ) -> Tuple[str, float]:
+        """Performs state collapse on the node vector.
+
+        Returns:
+            Tuple[str, float]: (Assigned_State, Confidence_Score)
+        """
+        v: np.ndarray = node.get_coordinate_vector()
+        projections: np.ndarray = np.dot(self.R, v)
+
+        # Softmax normalization for numerical stability and probability calculation
+        exp_proj: np.ndarray = np.exp(projections - np.max(projections))
+        probabilities: np.ndarray = exp_proj / np.sum(exp_proj)
+
+        max_idx: int = int(np.argmax(probabilities))
+        confidence: float = float(probabilities[max_idx])
+
+        if confidence < threshold or self.STATES[max_idx] == "Quarantined":
+            return "Quarantined", confidence
+
+        return self.STATES[max_idx], confidence
+
 
 class StructuralCompiler:
-    # ... (Keep existing StructuralCompiler methods) ...
-    def __init__(self, doc_path):
-        self.archive = zipfile.ZipFile(doc_path)
-        self.ns = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
-        self.styles = self._load_styles()
-        self.schema_matrix = {"document/body/p/r/t": "Native_Narrative", "document/body/tbl/tr/tc/p/r/t": "Native_Tabular", "txbxContent/p/r/t": "Native_Narrative"}
+    """Parses OOXML container parts into a Chestnut DAG and executes deterministic
 
-    def _load_styles(self):
-        styles = {}
+    bifurcation using the Resolution Matrix operator.
+    """
+
+    def __init__(self, doc_file: Any) -> None:
+        self.archive: zipfile.ZipFile = zipfile.ZipFile(doc_file)
+        self.styles: Dict[str, str] = self._load_styles()
+        self.resolution_matrix: ResolutionMatrix = ResolutionMatrix()
+
+    def _load_styles(self) -> Dict[str, str]:
+        """Extracts style ID to human-readable style name mappings from word/styles.xml."""
+        styles: Dict[str, str] = {}
         try:
-            with self.archive.open('word/styles.xml') as f:
-                root = ET.parse(f).getroot()
-                for style in root.findall('.//w:style', self.ns):
-                    s_id = style.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}styleId')
-                    name = style.find('.//w:name', self.ns)
-                    styles[s_id] = name.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val') if name is not None else s_id
-        except: pass
+            with self.archive.open("word/styles.xml") as f:
+                root: ET._Element = ET.parse(f).getroot()
+                for style in root.findall(".//w:style", NS_MAP):
+                    s_id: Optional[str] = style.get(f"{{{NS_W}}}styleId")
+                    name_elem: Optional[ET._Element] = style.find(".//w:name", NS_MAP)
+                    if s_id:
+                        styles[s_id] = (
+                            name_elem.get(f"{{{NS_W}}}val")
+                            if name_elem is not None
+                            else s_id
+                        )
+        except (KeyError, ET.ParseError):
+            pass
         return styles
 
-    def build_dag(self, part_name: str) -> ChestnutNode:
+    def build_dag(self, part_name: str = "word/document.xml") -> ChestnutNode:
+        """Parses an OOXML XML part into a root ChestnutNode DAG."""
         with self.archive.open(part_name) as f:
-            root = ET.parse(f).getroot()
-            return self._traverse_and_build(root, "root")
+            root: ET._Element = ET.parse(f).getroot()
+            return self._traverse(root, current_path="", depth=0)
 
-    def _traverse_and_build(self, element, current_path: str, current_style: str = "Normal") -> ChestnutNode:
-        tag = element.tag.split('}')[-1]
-        new_path = f"{current_path}/{tag}"
-        if tag == 'p':
-            pPr = element.find('w:pPr', self.ns)
-            if pPr is not None:
-                pStyle = pPr.find('w:pStyle', self.ns)
-                if pStyle is not None:
-                    current_style = pStyle.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val')
-        text = element.text.strip() if element.text and element.text.strip() else ""
-        node = ChestnutNode(tag=tag, path=new_path, text=text, style_id=self.styles.get(current_style, current_style))
+    def _traverse(
+        self,
+        element: ET._Element,
+        current_path: str,
+        depth: int,
+        inherited_style: str = "Normal",
+        in_table: bool = False,
+        in_textbox: bool = False,
+    ) -> ChestnutNode:
+        tag: str = element.tag.split("}")[-1] if isinstance(element.tag, str) else ""
+
+        # Scope Context Updates
+        if tag == "tbl":
+            in_table = True
+        elif tag == "txbxContent":
+            in_textbox = True
+
+        # Style Precedence Resolution (Run Style > Paragraph Style > Inherited Style)
+        node_style: str = inherited_style
+        if tag == "p":
+            p_style: Optional[ET._Element] = element.find("w:pPr/w:pStyle", NS_MAP)
+            if p_style is not None:
+                val: Optional[str] = p_style.get(f"{{{NS_W}}}val")
+                if val:
+                    node_style = val
+        elif tag == "r":
+            r_style: Optional[ET._Element] = element.find("w:rPr/w:rStyle", NS_MAP)
+            if r_style is not None:
+                val: Optional[str] = r_style.get(f"{{{NS_W}}}val")
+                if val:
+                    node_style = val
+
+        # Construct raw path and normalize by stripping transient nodes
+        raw_path: str = f"{current_path}/{tag}" if current_path else tag
+        path_segments: List[str] = [
+            seg for seg in raw_path.split("/") if seg not in TRANSIENT_TAGS
+        ]
+        normalized_path: str = "/".join(path_segments)
+
+        # Extract text payload
+        text: str = (
+            element.text.strip()
+            if element.text and element.text.strip()
+            else ""
+        )
+
+        resolved_style: str = self.styles.get(node_style, node_style)
+        node: ChestnutNode = ChestnutNode(
+            tag=tag,
+            path=raw_path,
+            normalized_path=normalized_path,
+            text=text,
+            style_id=resolved_style,
+            depth=depth,
+            in_table=in_table,
+            in_textbox=in_textbox,
+        )
+
+        # Build child DAG recursively
         for child in element:
             if isinstance(child.tag, str):
-                node.children.append(self._traverse_and_build(child, new_path, current_style))
+                node.children.append(
+                    self._traverse(
+                        child,
+                        current_path=raw_path,
+                        depth=depth + 1,
+                        inherited_style=node_style,
+                        in_table=in_table,
+                        in_textbox=in_textbox,
+                    )
+                )
+
         return node
 
-    def bifurcate(self, node: ChestnutNode, ledger: Dict):
-        is_native = False
-        for vector, state in self.schema_matrix.items():
-            if node.path.endswith(vector):
-                ledger["Validated"].append({"State": state, "Style": node.style_id, "Path": node.path, "Content": node.text})
-                is_native = True
-                break
-        if not is_native and node.tag == 't' and node.text:
-            ledger["Quarantined"].append({"Path": node.path, "Content": node.text})
+    def bifurcate(
+        self, node: ChestnutNode, ledger: Dict[str, List[Dict[str, Any]]]
+    ) -> None:
+        """Recursively traverses the DAG and executes state collapse on leaf text atoms."""
+        if node.tag == "t" and node.text:
+            state, confidence = self.resolution_matrix.collapse(node)
+
+            record: Dict[str, Any] = {
+                "State": state,
+                "Confidence": round(confidence, 4),
+                "Style": node.style_id,
+                "Path": node.normalized_path,
+                "Content": node.text,
+            }
+
+            if state != "Quarantined":
+                ledger["Validated"].append(record)
+            else:
+                ledger["Quarantined"].append(record)
+
         for child in node.children:
             self.bifurcate(child, ledger)
 
+
+# --- Helper Methods ---
+
+
 def get_semantic_rank(style_name: str) -> str:
-    s = style_name.lower()
-    if "heading" in s: return "Heading"
-    if "table" in s: return "Table_Atom"
-    if "normal" in s: return "Body_Text"
+    """Categorizes OOXML style names into visualization tiers."""
+    s: str = style_name.lower()
+    if "heading" in s or "title" in s:
+        return "Heading"
+    if "table" in s or "grid" in s:
+        return "Table_Atom"
+    if "normal" in s or "body" in s:
+        return "Body_Text"
     return "Other"
 
-def to_markdown(ledger_data: List[Dict]) -> str:
-    md = ""
-    for item in ledger_data:
-        if "heading" in item['Style'].lower(): md += f"### {item['Content']}\n\n"
-        else: md += f"{item['Content']}\n\n"
-    return md
 
-def main():
-    st.set_page_config(layout="wide", page_title="Chestnut TRACE")
-    st.sidebar.warning("Status: EVALUATIVE ENGINE (v1.0)")
+def to_markdown(ledger_data: List[Dict[str, Any]]) -> str:
+    """Transforms validated ledger atoms into structured Markdown."""
+    lines: List[str] = []
+    for item in ledger_data:
+        style: str = item["Style"].lower()
+        content: str = item["Content"]
+        if "heading 1" in style:
+            lines.append(f"# {content}\n")
+        elif "heading 2" in style:
+            lines.append(f"## {content}\n")
+        elif "heading 3" in style:
+            lines.append(f"### {content}\n")
+        else:
+            lines.append(f"{content}\n")
+    return "\n".join(lines)
+
+
+# --- Streamlit Engine Application ---
+
+
+def main() -> None:
+    st.set_page_config(layout="wide", page_title="Chestnut TRACE Engine")
+    st.sidebar.warning("Status: MATRIX RESOLUTION ENGINE (v2.0)")
     st.title("Chestnut TRACE: Comparative Governance Engine")
-    
-    mode = st.radio("Audit Mode", ["Single SOP Audit", "Template vs. Variant"])
-    
-    # Store processed data in session state for tab access
-    if 'processed_data' not in st.session_state: st.session_state.processed_data = {}
+
+    mode: str = st.radio(
+        "Audit Mode", ["Single SOP Audit", "Template vs. Variant"], horizontal=True
+    )
+
+    processed: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
 
     if mode == "Single SOP Audit":
-        uploaded_files = st.file_uploader("Upload SOPs", type=["docx"], accept_multiple_files=True)
+        uploaded_files = st.file_uploader(
+            "Upload SOPs",
+            type=["docx"],
+            accept_multiple_files=True,
+            key="single_upload",
+        )
         if uploaded_files:
             for file in uploaded_files:
                 compiler = StructuralCompiler(file)
-                root = compiler.build_dag('word/document.xml')
-                ledger = {"Validated": [], "Quarantined": []}
+                root = compiler.build_dag("word/document.xml")
+                ledger: Dict[str, List[Dict[str, Any]]] = {
+                    "Validated": [],
+                    "Quarantined": [],
+                }
                 compiler.bifurcate(root, ledger)
-                st.session_state.processed_data[file.name] = ledger["Validated"]
+                processed[file.name] = ledger
 
     elif mode == "Template vs. Variant":
         col1, col2 = st.columns(2)
-        ref_file = col1.file_uploader("Master Template", type=["docx"])
-        var_files = col2.file_uploader("Variants", type=["docx"], accept_multiple_files=True)
-        if ref_file and var_files:
-            for f in [ref_file] + var_files:
-                compiler = StructuralCompiler(f)
-                root = compiler.build_dag('word/document.xml')
-                ledger = {"Validated": [], "Quarantined": []}
-                compiler.bifurcate(root, ledger)
-                st.session_state.processed_data[f.name] = ledger["Validated"]
+        ref_file = col1.file_uploader(
+            "Master Template", type=["docx"], key="ref_upload"
+        )
+        var_files = col2.file_uploader(
+            "Variants", type=["docx"], accept_multiple_files=True, key="var_upload"
+        )
 
-    # Drill-Down Logic
+        if ref_file and var_files:
+            for file in [ref_file] + var_files:
+                compiler = StructuralCompiler(file)
+                root = compiler.build_dag("word/document.xml")
+                ledger: Dict[str, List[Dict[str, Any]]] = {
+                    "Validated": [],
+                    "Quarantined": [],
+                }
+                compiler.bifurcate(root, ledger)
+                processed[file.name] = ledger
+
+    # Assign state safely
+    st.session_state.processed_data = processed
+
+    # Inspection View
     if st.session_state.processed_data:
-        selected = st.selectbox("Drill down into specific file", list(st.session_state.processed_data.keys()))
-        data = st.session_state.processed_data[selected]
-        
-        tab1, tab2, tab3 = st.tabs(["Pulse Graph", "Markdown", "JSON"])
+        st.divider()
+        selected_file: str = st.selectbox(
+            "Select Document Ledger to Audit",
+            list(st.session_state.processed_data.keys()),
+        )
+
+        file_ledger = st.session_state.processed_data[selected_file]
+        validated_data = file_ledger["Validated"]
+        quarantined_data = file_ledger["Quarantined"]
+
+        # Executive Governance Metrics
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Validated Atoms", len(validated_data))
+        m2.metric("Quarantined Atoms", len(quarantined_data))
+        total_atoms: int = len(validated_data) + len(quarantined_data)
+        governance_rate: float = (
+            (len(validated_data) / total_atoms * 100) if total_atoms > 0 else 0.0
+        )
+        m3.metric("Governance Score", f"{governance_rate:.1f}%")
+
+        tab1, tab2, tab3, tab4 = st.tabs(
+            [
+                "Pulse Graph",
+                "Markdown Preview",
+                "Validated Ledger",
+                "Quarantine Audit",
+            ]
+        )
+
         with tab1:
-            df = pd.DataFrame(data)
-            df['Category'] = df['Style'].apply(get_semantic_rank)
-            chart = alt.Chart(df.reset_index()).mark_circle(size=80).encode(
-                x='index', y=alt.Y('Category', sort=['Heading', 'Body_Text', 'Table_Atom', 'Other']),
-                color='Category', tooltip=['Style', 'Content']
-            ).interactive()
-            st.altair_chart(chart, use_container_width=True)
+            if validated_data:
+                df = pd.DataFrame(validated_data)
+                df["Category"] = df["Style"].apply(get_semantic_rank)
+                df["Atom_Index"] = df.index
+
+                chart = (
+                    alt.Chart(df)
+                    .mark_circle(size=90)
+                    .encode(
+                        x=alt.X("Atom_Index:Q", title="Sequence Index"),
+                        y=alt.Y(
+                            "Category:N",
+                            sort=[
+                                "Heading",
+                                "Body_Text",
+                                "Table_Atom",
+                                "Other",
+                            ],
+                            title="Semantic Category",
+                        ),
+                        color=alt.Color("Category:N", legend=alt.Legend(title="Category")),
+                        size=alt.Size("Confidence:Q", scale=alt.Scale(domain=[0.2, 1.0]), title="Collapse Confidence"),
+                        tooltip=["Style", "Confidence", "Path", "Content"],
+                    )
+                    .properties(height=380)
+                    .interactive()
+                )
+                st.altair_chart(chart, use_container_width=True)
+            else:
+                st.info("No validated atoms available for Pulse Graph visualization.")
+
         with tab2:
-            st.markdown(to_markdown(data))
+            st.markdown(to_markdown(validated_data))
+
         with tab3:
-            st.json(data)
+            st.json(validated_data)
+
+        with tab4:
+            if quarantined_data:
+                st.error(
+                    f"Quarantine Containment: {len(quarantined_data)} anomalies isolated."
+                )
+                st.json(quarantined_data)
+            else:
+                st.success("Zero anomalies detected. Document fully compliant.")
+
 
 if __name__ == "__main__":
     main()
