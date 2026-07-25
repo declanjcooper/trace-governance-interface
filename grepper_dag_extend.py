@@ -1,6 +1,6 @@
 """
 Chestnut TRACE: Comparative Governance Engine (v3.0)
-Adaptive Multi-Persona Governance Engine with Node Coalescing & Graph Export
+Adaptive Multi-Persona Governance Engine with Parameterized Node Coalescing & Graph Export
 """
 
 from dataclasses import dataclass, field
@@ -231,8 +231,16 @@ class StructuralCompiler:
 # --- Node Coalescing Transformation ---
 
 
-def coalesce_atoms(atoms: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Coalesces adjacent sibling ChestnutAtoms sharing identical parent containers and styles."""
+def coalesce_atoms(
+    atoms: List[Dict[str, Any]], strict_parent_matching: bool = True
+) -> List[Dict[str, Any]]:
+    """Coalesces adjacent sibling ChestnutAtoms while preserving deterministic DAG boundaries.
+
+    Args:
+        atoms: List of validated ChestnutAtom dictionaries.
+        strict_parent_matching: If True, requires identical ParentIDs (preserves XML run bounds).
+                                If False, merges runs sharing identical paths and styles within paragraph scope.
+    """
     if not atoms:
         return []
 
@@ -240,15 +248,19 @@ def coalesce_atoms(atoms: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     current_node = dict(atoms[0])
 
     for next_node in atoms[1:]:
-        same_parent = current_node.get("ParentID") == next_node.get("ParentID")
         same_path = current_node.get("Path") == next_node.get("Path")
         same_style = current_node.get("Style") == next_node.get("Style")
 
-        if same_parent and same_path and same_style:
+        if strict_parent_matching:
+            same_scope = current_node.get("ParentID") == next_node.get("ParentID")
+        else:
+            same_scope = same_path and same_style
+
+        if same_path and same_style and same_scope:
             text1 = current_node.get("Content", "")
             text2 = next_node.get("Content", "")
 
-            if text2 in [".", ",", ";", ":", "s", "s."]:
+            if text2 in [".", ",", ";", ":", "s", "s.", " "]:
                 current_node["Content"] = f"{text1}{text2}"
             else:
                 current_node["Content"] = f"{text1} {text2}".strip()
@@ -363,9 +375,13 @@ def main() -> None:
     default_coalesce = persona_mode == "Knowledge Worker (Reader Mode)"
     default_show_vector = persona_mode == "Developer (Graph & Vector Mode)"
     default_show_ids = persona_mode != "Knowledge Worker (Reader Mode)"
+    default_strict_parent = persona_mode == "System Auditor (Lossless Mode)"
 
     enable_coalesce = st.sidebar.toggle(
         "Enable Node Coalescing (Consolidate Runs)", value=default_coalesce
+    )
+    strict_parent_matching = st.sidebar.toggle(
+        "Strict Parent Container Matching", value=default_strict_parent
     )
     show_vector_details = st.sidebar.toggle(
         "Show Vector Coordinates & Parity", value=default_show_vector
@@ -434,9 +450,13 @@ def main() -> None:
         raw_validated = file_ledger["Validated"]
         quarantined_data = file_ledger["Quarantined"]
 
-        # Apply Coalescing based on toggle
+        # Apply Coalescing based on toggle configuration
         display_validated = (
-            coalesce_atoms(raw_validated) if enable_coalesce else raw_validated
+            coalesce_atoms(
+                raw_validated, strict_parent_matching=strict_parent_matching
+            )
+            if enable_coalesce
+            else raw_validated
         )
 
         # Executive Governance Metrics
