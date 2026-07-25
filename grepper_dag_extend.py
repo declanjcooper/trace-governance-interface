@@ -1,9 +1,6 @@
 """
-Chestnut TRACE: Comparative Governance Engine (v2.5)
-Deterministic Structural Compiler with Matrix State Collapse & JSON-LD Graph Export
-
-Dependencies:
-    pip install streamlit lxml numpy pandas altair
+Chestnut TRACE: Comparative Governance Engine (v3.0)
+Adaptive Multi-Persona Governance Engine with Node Coalescing & Graph Export
 """
 
 from dataclasses import dataclass, field
@@ -21,7 +18,6 @@ import streamlit as st
 NS_W: str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 NS_MAP: Dict[str, str] = {"w": NS_W}
 
-# Tags representing transient wrappers to be stripped during path vector normalization
 TRANSIENT_TAGS: set[str] = {
     "smartTag",
     "hyperlink",
@@ -50,10 +46,6 @@ class ChestnutNode:
     children: List["ChestnutNode"] = field(default_factory=list)
 
     def get_coordinate_vector(self) -> np.ndarray:
-        """Constructs an orthogonal coordinate vector representing the node's topological position.
-
-        Vector: v = [Depth, In_Table, In_Textbox, Is_Leaf]
-        """
         is_leaf: float = 1.0 if not self.children else 0.0
         return np.array(
             [
@@ -67,16 +59,11 @@ class ChestnutNode:
 
 
 class ResolutionMatrix:
-    """Observation Operator (R) that projects structural coordinate vector v_node
-
-    into discrete semantic states via matrix transformation and Softmax evaluation.
-    """
+    """Observation Operator (R) that projects coordinate vector v_node into semantic states."""
 
     STATES: List[str] = ["Native_Narrative", "Native_Tabular", "Quarantined"]
 
     def __init__(self) -> None:
-        # Basis projection matrix R:
-        # Maps [Depth, In_Table, In_Textbox, Is_Leaf] -> [Narrative, Tabular, Quarantined]
         self.R: np.ndarray = np.array(
             [
                 [-0.05, -0.80, 0.50, 0.80],   # Native_Narrative Weight Vector
@@ -89,15 +76,9 @@ class ResolutionMatrix:
     def collapse(
         self, node: ChestnutNode, threshold: float = 0.20
     ) -> Tuple[str, float]:
-        """Performs state collapse on the node vector.
-
-        Returns:
-            Tuple[str, float]: (Assigned_State, Confidence_Score)
-        """
         v: np.ndarray = node.get_coordinate_vector()
         projections: np.ndarray = np.dot(self.R, v)
 
-        # Softmax normalization for numerical stability and probability calculation
         exp_proj: np.ndarray = np.exp(projections - np.max(projections))
         probabilities: np.ndarray = exp_proj / np.sum(exp_proj)
 
@@ -111,10 +92,7 @@ class ResolutionMatrix:
 
 
 class StructuralCompiler:
-    """Parses OOXML container parts into a Chestnut DAG and executes deterministic
-
-    bifurcation using the Resolution Matrix operator.
-    """
+    """Parses OOXML container parts into a Chestnut DAG and executes deterministic bifurcation."""
 
     def __init__(self, doc_file: Any, doc_name: str) -> None:
         self.doc_name: str = doc_name
@@ -124,7 +102,6 @@ class StructuralCompiler:
         self.node_counter: int = 0
 
     def _load_styles(self) -> Dict[str, str]:
-        """Extracts style ID to human-readable style name mappings from word/styles.xml."""
         styles: Dict[str, str] = {}
         try:
             with self.archive.open("word/styles.xml") as f:
@@ -143,12 +120,10 @@ class StructuralCompiler:
         return styles
 
     def _generate_node_id(self) -> str:
-        """Generates a unique deterministic node identifier for graph references."""
         self.node_counter += 1
         return f"urn:trace:doc:{self.doc_name}:node:{self.node_counter:04d}"
 
     def build_dag(self, part_name: str = "word/document.xml") -> ChestnutNode:
-        """Parses an OOXML XML part into a root ChestnutNode DAG."""
         with self.archive.open(part_name) as f:
             root: ET._Element = ET.parse(f).getroot()
             return self._traverse(root, current_path="", depth=0, parent_id=None)
@@ -166,13 +141,11 @@ class StructuralCompiler:
         tag: str = element.tag.split("}")[-1] if isinstance(element.tag, str) else ""
         node_id: str = self._generate_node_id()
 
-        # Scope Context Updates
         if tag == "tbl":
             in_table = True
         elif tag == "txbxContent":
             in_textbox = True
 
-        # Style Precedence Resolution
         node_style: str = inherited_style
         if tag == "p":
             p_style: Optional[ET._Element] = element.find("w:pPr/w:pStyle", NS_MAP)
@@ -187,14 +160,12 @@ class StructuralCompiler:
                 if val:
                     node_style = val
 
-        # Construct raw path and normalize by stripping transient nodes
         raw_path: str = f"{current_path}/{tag}" if current_path else tag
         path_segments: List[str] = [
             seg for seg in raw_path.split("/") if seg not in TRANSIENT_TAGS
         ]
         normalized_path: str = "/".join(path_segments)
 
-        # Extract text payload
         text: str = (
             element.text.strip()
             if element.text and element.text.strip()
@@ -215,7 +186,6 @@ class StructuralCompiler:
             parent_id=parent_id,
         )
 
-        # Build child DAG recursively
         for child in element:
             if isinstance(child.tag, str):
                 node.children.append(
@@ -235,7 +205,6 @@ class StructuralCompiler:
     def bifurcate(
         self, node: ChestnutNode, ledger: Dict[str, List[Dict[str, Any]]]
     ) -> None:
-        """Recursively traverses the DAG and executes state collapse on leaf text atoms."""
         if node.tag == "t" and node.text:
             state, confidence = self.resolution_matrix.collapse(node)
 
@@ -259,16 +228,44 @@ class StructuralCompiler:
             self.bifurcate(child, ledger)
 
 
-# --- JSON-LD Knowledge Graph Exporter ---
+# --- Node Coalescing Transformation ---
+
+
+def coalesce_atoms(atoms: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Coalesces adjacent sibling ChestnutAtoms sharing identical parent containers and styles."""
+    if not atoms:
+        return []
+
+    coalesced: List[Dict[str, Any]] = []
+    current_node = dict(atoms[0])
+
+    for next_node in atoms[1:]:
+        same_parent = current_node.get("ParentID") == next_node.get("ParentID")
+        same_path = current_node.get("Path") == next_node.get("Path")
+        same_style = current_node.get("Style") == next_node.get("Style")
+
+        if same_parent and same_path and same_style:
+            text1 = current_node.get("Content", "")
+            text2 = next_node.get("Content", "")
+
+            if text2 in [".", ",", ";", ":", "s", "s."]:
+                current_node["Content"] = f"{text1}{text2}"
+            else:
+                current_node["Content"] = f"{text1} {text2}".strip()
+        else:
+            coalesced.append(current_node)
+            current_node = dict(next_node)
+
+    coalesced.append(current_node)
+    return coalesced
+
+
+# --- JSON-LD Exporter ---
 
 
 def export_to_json_ld(
     file_name: str, validated_atoms: List[Dict[str, Any]]
 ) -> str:
-    """Transforms TRACE validated atoms into a fully compliant JSON-LD Graph document
-
-    preserving tree-DAG edge relations, topological coordinates, and provenance.
-    """
     graph_nodes: List[Dict[str, Any]] = []
 
     for atom in validated_atoms:
@@ -315,7 +312,6 @@ def export_to_json_ld(
 
 
 def get_semantic_rank(style_name: str) -> str:
-    """Categorizes OOXML style names into visualization tiers."""
     s: str = style_name.lower()
     if "heading" in s or "title" in s:
         return "Heading"
@@ -327,7 +323,6 @@ def get_semantic_rank(style_name: str) -> str:
 
 
 def to_markdown(ledger_data: List[Dict[str, Any]]) -> str:
-    """Transforms validated ledger atoms into structured Markdown."""
     lines: List[str] = []
     for item in ledger_data:
         style: str = item["Style"].lower()
@@ -348,7 +343,37 @@ def to_markdown(ledger_data: List[Dict[str, Any]]) -> str:
 
 def main() -> None:
     st.set_page_config(layout="wide", page_title="Chestnut TRACE Engine")
-    st.sidebar.warning("Status: GRAPH RESOLUTION ENGINE (v2.5)")
+
+    # --- Sidebar Persona & View Controls ---
+    st.sidebar.title("TRACE Control Surface")
+
+    persona_mode = st.sidebar.selectbox(
+        "User Profile / Preset View",
+        [
+            "Knowledge Worker (Reader Mode)",
+            "System Auditor (Lossless Mode)",
+            "Developer (Graph & Vector Mode)",
+        ],
+    )
+
+    st.sidebar.divider()
+    st.sidebar.subheader("Granular View Toggles")
+
+    # Dynamic toggle defaults based on selected persona
+    default_coalesce = persona_mode == "Knowledge Worker (Reader Mode)"
+    default_show_vector = persona_mode == "Developer (Graph & Vector Mode)"
+    default_show_ids = persona_mode != "Knowledge Worker (Reader Mode)"
+
+    enable_coalesce = st.sidebar.toggle(
+        "Enable Node Coalescing (Consolidate Runs)", value=default_coalesce
+    )
+    show_vector_details = st.sidebar.toggle(
+        "Show Vector Coordinates & Parity", value=default_show_vector
+    )
+    show_node_ids = st.sidebar.toggle(
+        "Show Node IDs & Parent Links", value=default_show_ids
+    )
+
     st.title("Chestnut TRACE: Comparative Governance Engine")
 
     mode: str = st.radio(
@@ -395,7 +420,6 @@ def main() -> None:
                 compiler.bifurcate(root, ledger)
                 processed[file.name] = ledger
 
-    # Assign state safely
     st.session_state.processed_data = processed
 
     # Inspection View
@@ -407,18 +431,24 @@ def main() -> None:
         )
 
         file_ledger = st.session_state.processed_data[selected_file]
-        validated_data = file_ledger["Validated"]
+        raw_validated = file_ledger["Validated"]
         quarantined_data = file_ledger["Quarantined"]
 
-        # Executive Governance Metrics
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Validated Atoms", len(validated_data))
-        m2.metric("Quarantined Atoms", len(quarantined_data))
-        total_atoms: int = len(validated_data) + len(quarantined_data)
-        governance_rate: float = (
-            (len(validated_data) / total_atoms * 100) if total_atoms > 0 else 0.0
+        # Apply Coalescing based on toggle
+        display_validated = (
+            coalesce_atoms(raw_validated) if enable_coalesce else raw_validated
         )
-        m3.metric("Governance Score", f"{governance_rate:.1f}%")
+
+        # Executive Governance Metrics
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Display Atoms", len(display_validated))
+        m2.metric("Raw Structural Atoms", len(raw_validated))
+        m3.metric("Quarantined Atoms", len(quarantined_data))
+        total_atoms: int = len(raw_validated) + len(quarantined_data)
+        governance_rate: float = (
+            (len(raw_validated) / total_atoms * 100) if total_atoms > 0 else 0.0
+        )
+        m4.metric("Governance Score", f"{governance_rate:.1f}%")
 
         tab1, tab2, tab3, tab4, tab5 = st.tabs(
             [
@@ -431,8 +461,8 @@ def main() -> None:
         )
 
         with tab1:
-            if validated_data:
-                df = pd.DataFrame(validated_data)
+            if display_validated:
+                df = pd.DataFrame(display_validated)
                 df["Category"] = df["Style"].apply(get_semantic_rank)
                 df["Atom_Index"] = df.index
 
@@ -463,10 +493,19 @@ def main() -> None:
                 st.info("No validated atoms available for Pulse Graph visualization.")
 
         with tab2:
-            st.markdown(to_markdown(validated_data))
+            st.markdown(to_markdown(display_validated))
 
         with tab3:
-            st.json(validated_data)
+            # Filter ledger columns based on toggles
+            df_ledger = pd.DataFrame(display_validated)
+            cols_to_show = ["Content", "Style"]
+
+            if show_node_ids:
+                cols_to_show = ["NodeID", "ParentID"] + cols_to_show
+            if show_vector_details:
+                cols_to_show += ["Path", "TopologicalParity", "Confidence", "State"]
+
+            st.dataframe(df_ledger[cols_to_show], use_container_width=True)
 
         with tab4:
             if quarantined_data:
@@ -478,7 +517,7 @@ def main() -> None:
                 st.success("Zero anomalies detected. Document fully compliant.")
 
         with tab5:
-            json_ld_str: str = export_to_json_ld(selected_file, validated_data)
+            json_ld_str: str = export_to_json_ld(selected_file, display_validated)
 
             st.subheader("Interoperable Knowledge Graph (JSON-LD)")
             st.caption(
