@@ -62,36 +62,32 @@ class ChestnutNode:
 
 
 class ResolutionMatrix:
-    """Observation Operator (R) that projects coordinate vector v_node into semantic states."""
+    """Observation Operator resolving XML lineage & styles into TRACE Semantic States."""
 
-    STATES: List[str] = ["Native_Narrative", "Native_Tabular", "Quarantined"]
+    def collapse(self, node: ChestnutNode, threshold: float = 0.20) -> Tuple[str, float]:
+        style_lower: str = node.style_id.lower()
+        path_lower: str = node.normalized_path.lower()
 
-    def __init__(self) -> None:
-        self.R: np.ndarray = np.array(
-            [
-                [-0.05, -0.80, 0.50, 0.80],   # Native_Narrative Weight Vector
-                [0.10, 1.50, -0.50, 0.80],    # Native_Tabular Weight Vector
-                [0.00, -0.20, -0.20, -0.50],  # Anomaly Baseline
-            ],
-            dtype=np.float64,
+        # 1. Native Headings
+        if any(h in style_lower for h in ["heading", "title", "subtitle"]):
+            return "Native_Heading", 0.9500
+
+        # 2. Native Tabular
+        if node.in_table:
+            return "Native_Tabular", 0.9436
+
+        # 3. Auxiliary Container Catch-All Bucket
+        # Captures text boxes, frames, sidebars, callout boxes, headers, footers
+        is_auxiliary: bool = (
+            node.in_textbox
+            or any(seg in path_lower for seg in ["header", "footer", "frame", "sidebar"])
+            or any(kw in style_lower for kw in ["callout", "sidebar", "annotation", "comment", "frame", "caption"])
         )
+        if is_auxiliary:
+            return "Auxiliary_Container", 0.9100
 
-    def collapse(
-        self, node: ChestnutNode, threshold: float = 0.20
-    ) -> Tuple[str, float]:
-        v: np.ndarray = node.get_coordinate_vector()
-        projections: np.ndarray = np.dot(self.R, v)
-
-        exp_proj: np.ndarray = np.exp(projections - np.max(projections))
-        probabilities: np.ndarray = exp_proj / np.sum(exp_proj)
-
-        max_idx: int = int(np.argmax(probabilities))
-        confidence: float = float(probabilities[max_idx])
-
-        if confidence < threshold or self.STATES[max_idx] == "Quarantined":
-            return "Quarantined", confidence
-
-        return self.STATES[max_idx], confidence
+        # 4. Native Body Prose Default
+        return "Native_Prose", 0.8750
 
 
 class StructuralCompiler:
@@ -287,15 +283,15 @@ def coalesce_atoms(
 # --- JSON-LD Exporter ---
 
 
-def export_to_json_ld(
+def export_to_json_ld_dict(
     file_name: str, validated_atoms: List[Dict[str, Any]]
-) -> str:
+) -> Dict[str, Any]:
     graph_nodes: List[Dict[str, Any]] = []
 
     for atom in validated_atoms:
         schema_type: str = (
             "DigitalDocumentSection"
-            if "Heading" in atom["Style"]
+            if atom["State"] == "Native_Heading"
             else "TextDigitalDocument"
         )
 
@@ -317,7 +313,7 @@ def export_to_json_ld(
 
         graph_nodes.append(ld_node)
 
-    json_ld_document: Dict[str, Any] = {
+    return {
         "@context": {
             "schema": "https://schema.org/",
             "trace": "https://trace.chestnut.org/schema/v2/",
@@ -330,8 +326,6 @@ def export_to_json_ld(
         "trace:governanceStatus": "Validated",
         "@graph": graph_nodes,
     }
-
-    return json.dumps(json_ld_document, indent=2)
 
 
 # --- Helper Methods ---
@@ -489,7 +483,7 @@ def main() -> None:
                 "Pulse Graph",
                 "Markdown Preview",
                 "Validated Ledger",
-                "Quarantine Audit",
+                "Quarantine & Aux Audit",
                 "Graph / JSON-LD Export",
             ]
         )
@@ -559,31 +553,20 @@ def main() -> None:
             st.dataframe(df_ledger[cols_to_show], use_container_width=True)
 
         with tab4:
-            if quarantined_data:
-                st.error(
-                    f"Quarantine Containment: {len(quarantined_data)} anomalies isolated."
+            st.subheader("Auxiliary Container Audit")
+            aux_atoms = [a for a in display_validated if a["State"] == "Auxiliary_Container"]
+            st.metric("Total Auxiliary Items Captured", len(aux_atoms))
+
+            if aux_atoms:
+                df_aux = pd.DataFrame(aux_atoms)
+                st.caption("Reviewing captured non-body, floating, frame, or callout elements:")
+                st.dataframe(
+                    df_aux[["DeweyID", "Style", "Path", "Content", "TopologicalParity"]],
+                    use_container_width=True,
                 )
-                st.json(quarantined_data)
             else:
-                st.success("Zero anomalies detected. Document fully compliant.")
+                st.info("No auxiliary container elements detected in this document.")
 
-        with tab5:
-            json_ld_str: str = export_to_json_ld(selected_file, display_validated)
+            st.divider()
 
-            st.subheader("Interoperable Knowledge Graph (JSON-LD)")
-            st.caption(
-                "Export structured RDF graph containing Dewey coordinates, topological invariants, state collapse metrics, and explicit DAG parent-child pointers."
-            )
-
-            st.download_button(
-                label="Download JSON-LD Graph Document",
-                data=json_ld_str,
-                file_name=f"{selected_file}_trace_graph.jsonld",
-                mime="application/ld+json",
-            )
-
-            st.json(json_ld_str)
-
-
-if __name__ == "__main__":
-    main()
+            st.subheader("Quarantine Iso
