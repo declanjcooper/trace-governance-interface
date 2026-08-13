@@ -1,7 +1,7 @@
 """
-Chestnut TRACE: Comparative Governance Engine (v3.1 - Dewey Topological Edition)
+Chestnut TRACE: Comparative Governance Engine (v3.2 - Stable Edition)
 Adaptive Multi-Persona Governance Engine with Parameterized Node Coalescing,
-Hierarchical Dewey Coordinate Generator, & Graph Export
+Hierarchical Dewey Coordinate Generator, & Interoperable Graph Export
 """
 
 from dataclasses import dataclass, field
@@ -81,7 +81,10 @@ class ResolutionMatrix:
         is_auxiliary: bool = (
             node.in_textbox
             or any(seg in path_lower for seg in ["header", "footer", "frame", "sidebar"])
-            or any(kw in style_lower for kw in ["callout", "sidebar", "annotation", "comment", "frame", "caption"])
+            or any(
+                kw in style_lower
+                for kw in ["callout", "sidebar", "annotation", "comment", "frame", "caption"]
+            )
         )
         if is_auxiliary:
             return "Auxiliary_Container", 0.9100
@@ -123,7 +126,6 @@ class StructuralCompiler:
     def build_dag(self, part_name: str = "word/document.xml") -> ChestnutNode:
         with self.archive.open(part_name) as f:
             root: ET._Element = ET.parse(f).getroot()
-            # Root node initiates Dewey coordinate "1"
             return self._traverse(
                 root, current_path="", depth=0, parent_id=None, dewey_id="1"
             )
@@ -188,7 +190,6 @@ class StructuralCompiler:
             parent_id=parent_id,
         )
 
-        # Child branch index generation for Dewey hierarchy
         child_counter = 1
         for child in element:
             if isinstance(child.tag, str):
@@ -263,10 +264,10 @@ def coalesce_atoms(
             text1 = current_node.get("Content", "")
             text2 = next_node.get("Content", "")
 
-            # Preserve range interval for Dewey coordinates on coalescing
-            dewey_start = current_node["DeweyID"].split("-")[0]
-            dewey_end = next_node["DeweyID"].split("-")[-1]
-            current_node["DeweyID"] = f"{dewey_start}-{dewey_end}"
+            # Robust Dewey Interval Range Calculation
+            start_dewey = current_node["DeweyID"].split("-")[0]
+            end_dewey = next_node["DeweyID"].split("-")[-1]
+            current_node["DeweyID"] = f"{start_dewey}-{end_dewey}"
 
             if text2 in [".", ",", ";", ":", "s", "s.", " "]:
                 current_node["Content"] = f"{text1}{text2}"
@@ -379,7 +380,6 @@ def main() -> None:
     st.sidebar.divider()
     st.sidebar.subheader("Granular View Toggles")
 
-    # Dynamic toggle defaults based on selected persona
     default_coalesce = persona_mode == "Knowledge Worker (Reader Mode)"
     default_show_vector = persona_mode == "Developer (Graph & Vector Mode)"
     default_show_ids = persona_mode != "Knowledge Worker (Reader Mode)"
@@ -541,7 +541,6 @@ def main() -> None:
             st.markdown(to_markdown(display_validated))
 
         with tab3:
-            # Filter ledger columns based on toggles
             df_ledger = pd.DataFrame(display_validated)
             cols_to_show = ["Content", "Style"]
 
@@ -569,4 +568,33 @@ def main() -> None:
 
             st.divider()
 
-            st.subheader("Quarantine Iso
+            st.subheader("Quarantine Isolation Audit")
+            if quarantined_data:
+                st.error(
+                    f"Quarantine Containment: {len(quarantined_data)} anomalies isolated."
+                )
+                st.json(quarantined_data)
+            else:
+                st.success("Zero anomalies detected. Document fully compliant.")
+
+        with tab5:
+            json_ld_dict = export_to_json_ld_dict(selected_file, display_validated)
+            json_ld_str = json.dumps(json_ld_dict, indent=2)
+
+            st.subheader("Interoperable Knowledge Graph (JSON-LD)")
+            st.caption(
+                "Export structured RDF graph containing Dewey coordinates, topological invariants, state collapse metrics, and explicit DAG parent-child pointers."
+            )
+
+            st.download_button(
+                label="Download JSON-LD Graph Document",
+                data=json_ld_str,
+                file_name=f"{selected_file}_trace_graph.jsonld",
+                mime="application/ld+json",
+            )
+
+            st.json(json_ld_dict)
+
+
+if __name__ == "__main__":
+    main()
