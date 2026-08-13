@@ -1,8 +1,8 @@
 """
-Chestnut TRACE: Comparative Governance Engine (v4.2 - Section-Scoped Remediation Edition)
+Chestnut TRACE: Comparative Governance Engine (v4.3 - Graph Pre-Flight & Template Compare Edition)
 Adaptive Multi-Persona Governance Engine with Parameterized Node Coalescing,
 Relative Delta Dewey Coordinates, Normal-Text Origin Vectors, Calibrated Vector Quarantine,
-& Section-Scoped Subtree Remediation (Approve/Reject).
+Section-Scoped Subtree Remediation, & Automated Pre-Flight Manifest Generation.
 """
 
 from dataclasses import dataclass, field
@@ -367,6 +367,52 @@ def coalesce_atoms(
     return coalesced
 
 
+# --- Repurposed Template Compare & Pre-Flight Engine ---
+
+
+class TemplateCompareEngine:
+    """Evaluates Variant graph payloads against a Master Template graph to verify integrity & compute token deltas."""
+
+    def __init__(self, ref_ledger: Dict[str, List[Dict[str, Any]]], var_ledger: Dict[str, List[Dict[str, Any]]]) -> None:
+        self.ref_atoms = ref_ledger["Validated"]
+        self.var_atoms = var_ledger["Validated"]
+        self.var_quarantine = var_ledger["Quarantined"]
+
+    def execute_preflight_check(self) -> Dict[str, Any]:
+        """Runs pre-flight comparison: topological drift, structural completeness, and token savings metrics."""
+        ref_headings = {a["Content"].strip().lower() for a in self.ref_atoms if a["State"] == "Native_Heading"}
+        var_headings = {a["Content"].strip().lower() for a in self.var_atoms if a["State"] == "Native_Heading"}
+
+        missing_sections = list(ref_headings - var_headings)
+        added_sections = list(var_headings - ref_headings)
+
+        # Estimate raw document token footprint vs JSON-LD graph payload token footprint
+        raw_text = " ".join([a["Content"] for a in self.var_atoms + self.var_quarantine])
+        raw_token_count = max(1, len(raw_text) // 4)
+
+        json_ld_str = json.dumps(export_to_json_ld_dict("variant", coalesce_atoms(self.var_atoms)))
+        optimized_token_count = max(1, len(json_ld_str) // 4)
+
+        token_savings_pct = max(0.0, float((raw_token_count - optimized_token_count) / raw_token_count * 100))
+
+        confidence_scores = [a["Confidence"] for a in self.var_atoms]
+        avg_confidence = float(np.mean(confidence_scores)) if confidence_scores else 0.0
+
+        status = "PASSED" if not missing_sections and len(self.var_quarantine) == 0 else "WARNING"
+
+        return {
+            "status": status,
+            "governance_confidence": round(avg_confidence, 4),
+            "missing_template_sections": missing_sections,
+            "added_variant_sections": added_sections,
+            "raw_token_estimate": raw_token_count,
+            "graph_token_estimate": optimized_token_count,
+            "token_reduction_pct": round(token_savings_pct, 1),
+            "quarantined_count": len(self.var_quarantine),
+            "validated_node_count": len(self.var_atoms),
+        }
+
+
 # --- JSON-LD Exporter ---
 
 
@@ -541,6 +587,32 @@ def main() -> None:
                     }
                     compiler.bifurcate(root, ledger)
                     st.session_state.processed_data[file.name] = ledger
+
+            # --- Phase 1: Structural & Pre-Flight Run UI ---
+            st.divider()
+            st.subheader("⚙️ Phase 1: Structural & Semantic Pre-Flight Audit")
+
+            ref_ledger = st.session_state.processed_data[ref_file.name]
+            var_file_selected = st.selectbox("Select Variant to Compare against Master:", [v.name for v in var_files])
+            var_ledger = st.session_state.processed_data[var_file_selected]
+
+            compare_engine = TemplateCompareEngine(ref_ledger, var_ledger)
+            manifest = compare_engine.execute_preflight_check()
+
+            # Render Real-time Pre-Flight Status Badge
+            status_color = "green" if manifest["status"] == "PASSED" else "orange"
+            st.markdown(f":{status_color}[**Pre-Flight Status:** {manifest['status']}] • **Governance Confidence:** `{manifest['governance_confidence']}`")
+
+            p1, p2, p3, p4 = st.columns(4)
+            p1.metric("Raw Token Est.", f"{manifest['raw_token_estimate']:,}")
+            p2.metric("Graph Token Est.", f"{manifest['graph_token_estimate']:,}")
+            p3.metric("Context Reduction", f"{manifest['token_reduction_pct']}%")
+            p4.metric("Quarantined Items", manifest['quarantined_count'])
+
+            if manifest["missing_template_sections"]:
+                st.warning(f"⚠️ Structural Drift Detected: Missing Template Sections: {', '.join(manifest['missing_template_sections'])}")
+            if manifest["added_variant_sections"]:
+                st.info(f"ℹ️ Variant Expansion: Additional Sections Detected: {', '.join(manifest['added_variant_sections'])}")
 
     # Inspection View
     if st.session_state.processed_data:
