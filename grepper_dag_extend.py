@@ -1,11 +1,12 @@
 """
-Chestnut TRACE: Comparative Governance Engine (v3.2 - Stable Edition)
+Chestnut TRACE: Comparative Governance Engine (v4.0 - Relative Delta & Vector Geometry Edition)
 Adaptive Multi-Persona Governance Engine with Parameterized Node Coalescing,
-Hierarchical Dewey Coordinate Generator, & Interoperable Graph Export
+Relative Delta Dewey Coordinates, Normal-Text Origin Displacement Vectors, & Vector Quarantine.
 """
 
 from dataclasses import dataclass, field
 import json
+import re
 from typing import Any, Dict, List, Optional, Tuple
 import zipfile
 
@@ -31,30 +32,52 @@ TRANSIENT_TAGS: set[str] = {
 
 
 @dataclass
+class StyleDisplacementVector:
+    """Calculates geometric style displacement (ΔDt) relative to the Normal Text origin."""
+    size_offset_pt: float = 0.0
+    weight_delta: int = 0  # 0: normal, 1: bold
+    italic_delta: int = 0  # 0: regular, 1: italic
+    is_custom_style: bool = False
+
+    def magnitude(self) -> float:
+        """Returns the Euclidean displacement distance from Normal Text (0,0,0,0)."""
+        return float(
+            np.sqrt(
+                (self.size_offset_pt / 2.0) ** 2
+                + (self.weight_delta * 1.5) ** 2
+                + (self.italic_delta * 1.0) ** 2
+                + (2.0 if self.is_custom_style else 0.0)
+            )
+        )
+
+
+@dataclass
 class ChestnutNode:
-    """DAG Node representing an OOXML structural element and its topological metadata."""
+    """DAG Node representing an OOXML structural element with Relative Delta Coordinates."""
 
     node_id: str
-    dewey_id: str
+    dewey_id: str              # Full absolute coordinate or local relative delta string
+    delta_dewey: str            # Relative offset from preceding anchor
     tag: str
     path: str
     normalized_path: str
     text: str = ""
     style_id: str = "Normal"
-    depth: int = 0
+    depth: int = 0              # Structural distance (ΔDs) from origin
     in_table: bool = False
     in_textbox: bool = False
+    style_vector: StyleDisplacementVector = field(default_factory=StyleDisplacementVector)
     parent_id: Optional[str] = None
     children: List["ChestnutNode"] = field(default_factory=list)
 
     def get_coordinate_vector(self) -> np.ndarray:
-        """Constructs a deterministic coordinate vector anchored by Dewey depth."""
+        """Constructs a deterministic vector combining depth, parity, and style displacement."""
         is_leaf: float = 1.0 if not self.children else 0.0
         return np.array(
             [
-                float(self.depth),
-                1.0 if self.in_table else 0.0,
-                1.0 if self.in_textbox else 0.0,
+                float(self.depth),                             # ΔDs (Structural Distance)
+                -1.0 if (self.in_table or self.in_textbox) else 1.0, # Topological Parity ΔDp
+                self.style_vector.magnitude(),                 # ΔDt (Style Displacement)
                 is_leaf,
             ],
             dtype=np.float64,
@@ -62,22 +85,38 @@ class ChestnutNode:
 
 
 class ResolutionMatrix:
-    """Observation Operator resolving XML lineage & styles into TRACE Semantic States."""
+    """Observation Operator resolving XML lineage, styles, and vector anomalies into TRACE States."""
 
-    def collapse(self, node: ChestnutNode, threshold: float = 0.20) -> Tuple[str, float]:
+    # Out-of-domain semantic triggers (e.g., leftover clinical/enterprise template noise)
+    ANOMALY_TRIGGERS: set[str] = {
+        "medidata", "rave", "study inactivation", "crf", "clinical trial",
+        "protocol amendment", "sap_v", "inactivation"
+    }
+
+    def collapse(
+        self, node: ChestnutNode, max_style_delta_threshold: float = 4.5
+    ) -> Tuple[str, float]:
         style_lower: str = node.style_id.lower()
         path_lower: str = node.normalized_path.lower()
+        text_lower: str = node.text.lower()
 
-        # 1. Native Headings
+        # 1. Semantic Anomaly / Quarantine Detection (ΔDm)
+        if any(trigger in text_lower for trigger in self.ANOMALY_TRIGGERS):
+            return "Quarantined", 0.9900
+
+        # 2. Extreme Style Displacement Quarantine (ΔDt)
+        if node.style_vector.magnitude() > max_style_delta_threshold:
+            return "Quarantined", 0.9200
+
+        # 3. Native Headings
         if any(h in style_lower for h in ["heading", "title", "subtitle"]):
             return "Native_Heading", 0.9500
 
-        # 2. Native Tabular
+        # 4. Native Tabular
         if node.in_table:
             return "Native_Tabular", 0.9436
 
-        # 3. Auxiliary Container Catch-All Bucket
-        # Captures text boxes, frames, sidebars, callout boxes, headers, footers
+        # 5. Auxiliary Container Catch-All Bucket
         is_auxiliary: bool = (
             node.in_textbox
             or any(seg in path_lower for seg in ["header", "footer", "frame", "sidebar"])
@@ -89,18 +128,19 @@ class ResolutionMatrix:
         if is_auxiliary:
             return "Auxiliary_Container", 0.9100
 
-        # 4. Native Body Prose Default
+        # 6. Native Body Prose Default (Normal Text Ground)
         return "Native_Prose", 0.8750
 
 
 class StructuralCompiler:
-    """Parses OOXML container parts into a Chestnut DAG using explicit Dewey Decimal indexing."""
+    """Parses OOXML document parts into a Chestnut DAG using Origin-Relative Delta Topology."""
 
     def __init__(self, doc_file: Any, doc_name: str) -> None:
         self.doc_name: str = doc_name
         self.archive: zipfile.ZipFile = zipfile.ZipFile(doc_file)
         self.styles: Dict[str, str] = self._load_styles()
         self.resolution_matrix: ResolutionMatrix = ResolutionMatrix()
+        self.last_anchor_dewey: str = "1"
 
     def _load_styles(self) -> Dict[str, str]:
         styles: Dict[str, str] = {}
@@ -127,8 +167,43 @@ class StructuralCompiler:
         with self.archive.open(part_name) as f:
             root: ET._Element = ET.parse(f).getroot()
             return self._traverse(
-                root, current_path="", depth=0, parent_id=None, dewey_id="1"
+                root, current_path="", depth=0, parent_id=None, dewey_id="1", anchor_dewey="1"
             )
+
+    def _extract_style_vector(self, element: ET._Element, resolved_style: str) -> StyleDisplacementVector:
+        """Calculates style delta relative to Normal Text origin."""
+        vector = StyleDisplacementVector()
+        style_lower = resolved_style.lower()
+
+        if "normal" not in style_lower and "body" not in style_lower:
+            vector.is_custom_style = True
+
+        # Heading font size offsets
+        if "heading 1" in style_lower:
+            vector.size_offset_pt = 9.0
+            vector.weight_delta = 1
+        elif "heading 2" in style_lower:
+            vector.size_offset_pt = 5.0
+            vector.weight_delta = 1
+        elif "heading 3" in style_lower:
+            vector.size_offset_pt = 2.0
+            vector.weight_delta = 1
+
+        # Check explicit run formatting overrides
+        rPr = element.find("w:rPr", NS_MAP)
+        if rPr is not None:
+            if rPr.find("w:b", NS_MAP) is not None:
+                vector.weight_delta = 1
+            if rPr.find("w:i", NS_MAP) is not None:
+                vector.italic_delta = 1
+            sz = rPr.find("w:sz", NS_MAP)
+            if sz is not None:
+                val = sz.get(f"{{{NS_W}}}val")
+                if val and val.isdigit():
+                    # Word half-points to pt delta from 11pt baseline
+                    vector.size_offset_pt = (float(val) / 2.0) - 11.0
+
+        return vector
 
     def _traverse(
         self,
@@ -137,6 +212,7 @@ class StructuralCompiler:
         depth: int,
         parent_id: Optional[str],
         dewey_id: str,
+        anchor_dewey: str,
         inherited_style: str = "Normal",
         in_table: bool = False,
         in_textbox: bool = False,
@@ -163,6 +239,18 @@ class StructuralCompiler:
                 if val:
                     node_style = val
 
+        resolved_style: str = self.styles.get(node_style, node_style)
+        style_vector = self._extract_style_vector(element, resolved_style)
+
+        # Calculate Relative Delta Dewey offset from parent/anchor
+        if any(h in resolved_style.lower() for h in ["heading", "title"]):
+            anchor_dewey = dewey_id  # Reset origin anchor at structural headings
+            delta_dewey = dewey_id
+        else:
+            # Express local position as delta relative to current anchor origin
+            delta_offset = dewey_id.replace(f"{anchor_dewey}.", "+")
+            delta_dewey = delta_offset if delta_offset.startswith("+") else f"+{dewey_id}"
+
         raw_path: str = f"{current_path}/{tag}" if current_path else tag
         path_segments: List[str] = [
             seg for seg in raw_path.split("/") if seg not in TRANSIENT_TAGS
@@ -175,10 +263,10 @@ class StructuralCompiler:
             else ""
         )
 
-        resolved_style: str = self.styles.get(node_style, node_style)
         node: ChestnutNode = ChestnutNode(
             node_id=node_id,
             dewey_id=dewey_id,
+            delta_dewey=delta_dewey,
             tag=tag,
             path=raw_path,
             normalized_path=normalized_path,
@@ -187,6 +275,7 @@ class StructuralCompiler:
             depth=depth,
             in_table=in_table,
             in_textbox=in_textbox,
+            style_vector=style_vector,
             parent_id=parent_id,
         )
 
@@ -201,6 +290,7 @@ class StructuralCompiler:
                         depth=depth + 1,
                         parent_id=node_id,
                         dewey_id=child_dewey,
+                        anchor_dewey=anchor_dewey,
                         inherited_style=node_style,
                         in_table=in_table,
                         in_textbox=in_textbox,
@@ -219,11 +309,13 @@ class StructuralCompiler:
             record: Dict[str, Any] = {
                 "NodeID": node.node_id,
                 "DeweyID": node.dewey_id,
+                "DeltaDewey": node.delta_dewey,
                 "DeweyDepth": node.depth,
                 "ParentID": node.parent_id,
                 "State": state,
                 "Confidence": round(confidence, 4),
                 "Style": node.style_id,
+                "StyleDeltaMagnitude": round(node.style_vector.magnitude(), 2),
                 "Path": node.normalized_path,
                 "Content": node.text,
                 "TopologicalParity": -1 if node.in_table or node.in_textbox else 1,
@@ -244,7 +336,7 @@ class StructuralCompiler:
 def coalesce_atoms(
     atoms: List[Dict[str, Any]], strict_parent_matching: bool = True
 ) -> List[Dict[str, Any]]:
-    """Coalesces adjacent sibling ChestnutAtoms while preserving Dewey topological boundaries."""
+    """Coalesces adjacent sibling ChestnutAtoms while preserving relative Dewey boundaries."""
     if not atoms:
         return []
 
@@ -264,7 +356,7 @@ def coalesce_atoms(
             text1 = current_node.get("Content", "")
             text2 = next_node.get("Content", "")
 
-            # Robust Dewey Interval Range Calculation
+            # Dewey Interval Range Calculation
             start_dewey = current_node["DeweyID"].split("-")[0]
             end_dewey = next_node["DeweyID"].split("-")[-1]
             current_node["DeweyID"] = f"{start_dewey}-{end_dewey}"
@@ -302,7 +394,9 @@ def export_to_json_ld_dict(
             "schema:name": atom["Style"],
             "schema:text": atom["Content"],
             "trace:deweyCoordinate": atom["DeweyID"],
+            "trace:deltaDeweyCoordinate": atom.get("DeltaDewey", atom["DeweyID"]),
             "trace:deweyDepth": atom["DeweyDepth"],
+            "trace:styleDisplacementMagnitude": atom.get("StyleDeltaMagnitude", 0.0),
             "trace:normalizedPath": atom["Path"],
             "trace:collapseConfidence": atom["Confidence"],
             "trace:semanticState": atom["State"],
@@ -471,7 +565,7 @@ def main() -> None:
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Display Atoms", len(display_validated))
         m2.metric("Raw Structural Atoms", len(raw_validated))
-        m3.metric("Quarantined Atoms", len(quarantined_data))
+        m3.metric("Quarantined Anomalies", len(quarantined_data))
         total_atoms: int = len(raw_validated) + len(quarantined_data)
         governance_rate: float = (
             (len(raw_validated) / total_atoms * 100) if total_atoms > 0 else 0.0
@@ -522,8 +616,10 @@ def main() -> None:
                         tooltip=[
                             "NodeID",
                             "DeweyID",
+                            "DeltaDewey",
                             "DeweyDepth",
                             "Style",
+                            "StyleDeltaMagnitude",
                             "Confidence",
                             "TopologicalParity",
                             "Path",
@@ -545,9 +641,9 @@ def main() -> None:
             cols_to_show = ["Content", "Style"]
 
             if show_node_ids:
-                cols_to_show = ["DeweyID", "NodeID", "ParentID"] + cols_to_show
+                cols_to_show = ["DeweyID", "DeltaDewey", "NodeID", "ParentID"] + cols_to_show
             if show_vector_details:
-                cols_to_show += ["DeweyDepth", "Path", "TopologicalParity", "Confidence", "State"]
+                cols_to_show += ["DeweyDepth", "StyleDeltaMagnitude", "Path", "TopologicalParity", "Confidence", "State"]
 
             st.dataframe(df_ledger[cols_to_show], use_container_width=True)
 
@@ -568,14 +664,19 @@ def main() -> None:
 
             st.divider()
 
-            st.subheader("Quarantine Isolation Audit")
+            st.subheader("Vector Quarantine Isolation Audit")
             if quarantined_data:
                 st.error(
-                    f"Quarantine Containment: {len(quarantined_data)} anomalies isolated."
+                    f"Quarantine Containment: {len(quarantined_data)} semantic or visual anomalies isolated."
+                )
+                df_quarantine = pd.DataFrame(quarantined_data)
+                st.dataframe(
+                    df_quarantine[["DeweyID", "Style", "StyleDeltaMagnitude", "Content", "State"]],
+                    use_container_width=True,
                 )
                 st.json(quarantined_data)
             else:
-                st.success("Zero anomalies detected. Document fully compliant.")
+                st.success("Zero anomalies detected. Document fully compliant with baseline origin.")
 
         with tab5:
             json_ld_dict = export_to_json_ld_dict(selected_file, display_validated)
@@ -583,7 +684,7 @@ def main() -> None:
 
             st.subheader("Interoperable Knowledge Graph (JSON-LD)")
             st.caption(
-                "Export structured RDF graph containing Dewey coordinates, topological invariants, state collapse metrics, and explicit DAG parent-child pointers."
+                "Export structured RDF graph containing absolute and delta Dewey coordinates, style displacement vectors, state collapse metrics, and explicit DAG parent-child pointers."
             )
 
             st.download_button(
