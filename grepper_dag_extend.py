@@ -1,6 +1,7 @@
 """
-Chestnut TRACE: Comparative Governance Engine (v3.0)
-Adaptive Multi-Persona Governance Engine with Parameterized Node Coalescing & Graph Export
+Chestnut TRACE: Comparative Governance Engine (v3.1 - Dewey Topological Edition)
+Adaptive Multi-Persona Governance Engine with Parameterized Node Coalescing,
+Hierarchical Dewey Coordinate Generator, & Graph Export
 """
 
 from dataclasses import dataclass, field
@@ -34,6 +35,7 @@ class ChestnutNode:
     """DAG Node representing an OOXML structural element and its topological metadata."""
 
     node_id: str
+    dewey_id: str
     tag: str
     path: str
     normalized_path: str
@@ -46,6 +48,7 @@ class ChestnutNode:
     children: List["ChestnutNode"] = field(default_factory=list)
 
     def get_coordinate_vector(self) -> np.ndarray:
+        """Constructs a deterministic coordinate vector anchored by Dewey depth."""
         is_leaf: float = 1.0 if not self.children else 0.0
         return np.array(
             [
@@ -92,14 +95,13 @@ class ResolutionMatrix:
 
 
 class StructuralCompiler:
-    """Parses OOXML container parts into a Chestnut DAG and executes deterministic bifurcation."""
+    """Parses OOXML container parts into a Chestnut DAG using explicit Dewey Decimal indexing."""
 
     def __init__(self, doc_file: Any, doc_name: str) -> None:
         self.doc_name: str = doc_name
         self.archive: zipfile.ZipFile = zipfile.ZipFile(doc_file)
         self.styles: Dict[str, str] = self._load_styles()
         self.resolution_matrix: ResolutionMatrix = ResolutionMatrix()
-        self.node_counter: int = 0
 
     def _load_styles(self) -> Dict[str, str]:
         styles: Dict[str, str] = {}
@@ -119,14 +121,16 @@ class StructuralCompiler:
             pass
         return styles
 
-    def _generate_node_id(self) -> str:
-        self.node_counter += 1
-        return f"urn:trace:doc:{self.doc_name}:node:{self.node_counter:04d}"
+    def _generate_node_id(self, dewey_id: str) -> str:
+        return f"urn:trace:doc:{self.doc_name}:node:dewey:{dewey_id}"
 
     def build_dag(self, part_name: str = "word/document.xml") -> ChestnutNode:
         with self.archive.open(part_name) as f:
             root: ET._Element = ET.parse(f).getroot()
-            return self._traverse(root, current_path="", depth=0, parent_id=None)
+            # Root node initiates Dewey coordinate "1"
+            return self._traverse(
+                root, current_path="", depth=0, parent_id=None, dewey_id="1"
+            )
 
     def _traverse(
         self,
@@ -134,12 +138,13 @@ class StructuralCompiler:
         current_path: str,
         depth: int,
         parent_id: Optional[str],
+        dewey_id: str,
         inherited_style: str = "Normal",
         in_table: bool = False,
         in_textbox: bool = False,
     ) -> ChestnutNode:
         tag: str = element.tag.split("}")[-1] if isinstance(element.tag, str) else ""
-        node_id: str = self._generate_node_id()
+        node_id: str = self._generate_node_id(dewey_id)
 
         if tag == "tbl":
             in_table = True
@@ -175,6 +180,7 @@ class StructuralCompiler:
         resolved_style: str = self.styles.get(node_style, node_style)
         node: ChestnutNode = ChestnutNode(
             node_id=node_id,
+            dewey_id=dewey_id,
             tag=tag,
             path=raw_path,
             normalized_path=normalized_path,
@@ -186,19 +192,24 @@ class StructuralCompiler:
             parent_id=parent_id,
         )
 
+        # Child branch index generation for Dewey hierarchy
+        child_counter = 1
         for child in element:
             if isinstance(child.tag, str):
+                child_dewey = f"{dewey_id}.{child_counter}"
                 node.children.append(
                     self._traverse(
                         child,
                         current_path=raw_path,
                         depth=depth + 1,
                         parent_id=node_id,
+                        dewey_id=child_dewey,
                         inherited_style=node_style,
                         in_table=in_table,
                         in_textbox=in_textbox,
                     )
                 )
+                child_counter += 1
 
         return node
 
@@ -210,6 +221,8 @@ class StructuralCompiler:
 
             record: Dict[str, Any] = {
                 "NodeID": node.node_id,
+                "DeweyID": node.dewey_id,
+                "DeweyDepth": node.depth,
                 "ParentID": node.parent_id,
                 "State": state,
                 "Confidence": round(confidence, 4),
@@ -234,13 +247,7 @@ class StructuralCompiler:
 def coalesce_atoms(
     atoms: List[Dict[str, Any]], strict_parent_matching: bool = True
 ) -> List[Dict[str, Any]]:
-    """Coalesces adjacent sibling ChestnutAtoms while preserving deterministic DAG boundaries.
-
-    Args:
-        atoms: List of validated ChestnutAtom dictionaries.
-        strict_parent_matching: If True, requires identical ParentIDs (preserves XML run bounds).
-                                If False, merges runs sharing identical paths and styles within paragraph scope.
-    """
+    """Coalesces adjacent sibling ChestnutAtoms while preserving Dewey topological boundaries."""
     if not atoms:
         return []
 
@@ -259,6 +266,11 @@ def coalesce_atoms(
         if same_path and same_style and same_scope:
             text1 = current_node.get("Content", "")
             text2 = next_node.get("Content", "")
+
+            # Preserve range interval for Dewey coordinates on coalescing
+            dewey_start = current_node["DeweyID"].split("-")[0]
+            dewey_end = next_node["DeweyID"].split("-")[-1]
+            current_node["DeweyID"] = f"{dewey_start}-{dewey_end}"
 
             if text2 in [".", ",", ";", ":", "s", "s.", " "]:
                 current_node["Content"] = f"{text1}{text2}"
@@ -292,6 +304,8 @@ def export_to_json_ld(
             "@type": [schema_type, "trace:ChestnutAtom"],
             "schema:name": atom["Style"],
             "schema:text": atom["Content"],
+            "trace:deweyCoordinate": atom["DeweyID"],
+            "trace:deweyDepth": atom["DeweyDepth"],
             "trace:normalizedPath": atom["Path"],
             "trace:collapseConfidence": atom["Confidence"],
             "trace:semanticState": atom["State"],
@@ -484,13 +498,17 @@ def main() -> None:
             if display_validated:
                 df = pd.DataFrame(display_validated)
                 df["Category"] = df["Style"].apply(get_semantic_rank)
-                df["Atom_Index"] = df.index
 
+                # Topological Pulse Plot mapped to Dewey Coordinate Sequence
                 chart = (
                     alt.Chart(df)
-                    .mark_circle(size=90)
+                    .mark_circle(size=95)
                     .encode(
-                        x=alt.X("Atom_Index:Q", title="Sequence Index"),
+                        x=alt.X(
+                            "DeweyID:N",
+                            sort=None,
+                            title="Dewey Coordinate Topology Sequence",
+                        ),
                         y=alt.Y(
                             "Category:N",
                             sort=[
@@ -502,8 +520,21 @@ def main() -> None:
                             title="Semantic Category",
                         ),
                         color=alt.Color("Category:N", legend=alt.Legend(title="Category")),
-                        size=alt.Size("Confidence:Q", scale=alt.Scale(domain=[0.2, 1.0]), title="Collapse Confidence"),
-                        tooltip=["NodeID", "Style", "Confidence", "TopologicalParity", "Path", "Content"],
+                        size=alt.Size(
+                            "Confidence:Q",
+                            scale=alt.Scale(domain=[0.2, 1.0]),
+                            title="Collapse Confidence",
+                        ),
+                        tooltip=[
+                            "NodeID",
+                            "DeweyID",
+                            "DeweyDepth",
+                            "Style",
+                            "Confidence",
+                            "TopologicalParity",
+                            "Path",
+                            "Content",
+                        ],
                     )
                     .properties(height=380)
                     .interactive()
@@ -521,9 +552,9 @@ def main() -> None:
             cols_to_show = ["Content", "Style"]
 
             if show_node_ids:
-                cols_to_show = ["NodeID", "ParentID"] + cols_to_show
+                cols_to_show = ["DeweyID", "NodeID", "ParentID"] + cols_to_show
             if show_vector_details:
-                cols_to_show += ["Path", "TopologicalParity", "Confidence", "State"]
+                cols_to_show += ["DeweyDepth", "Path", "TopologicalParity", "Confidence", "State"]
 
             st.dataframe(df_ledger[cols_to_show], use_container_width=True)
 
@@ -541,7 +572,7 @@ def main() -> None:
 
             st.subheader("Interoperable Knowledge Graph (JSON-LD)")
             st.caption(
-                "Export structured RDF graph containing topological invariants, state collapse metrics, and explicit DAG parent-child pointers."
+                "Export structured RDF graph containing Dewey coordinates, topological invariants, state collapse metrics, and explicit DAG parent-child pointers."
             )
 
             st.download_button(
