@@ -2,7 +2,7 @@
 Chestnut TRACE: Comparative Governance Engine (v5.0 - Fully Structural Graph Edition)
 Adaptive Multi-Persona Governance Engine with Parameterized Node Coalescing,
 Explicit Tabular Matrix Coordinates, Atom Boundary Repair, Clean Vector Text Streams,
-Section-Scoped Subtree Remediation, & Multi-Part Document Ingestion.
+Section-Scoped Subtree Remediation, Multi-Part Document Ingestion, & Downstream Post-Quarantine Rendering.
 """
 
 from dataclasses import dataclass, field
@@ -601,7 +601,7 @@ def export_to_json_ld_dict(
     }
 
 
-# --- Helper Methods ---
+# --- Helper & Downstream Projection Methods ---
 
 
 def get_semantic_rank(style_name: str) -> str:
@@ -615,11 +615,26 @@ def get_semantic_rank(style_name: str) -> str:
     return "Other"
 
 
-def to_markdown(ledger_data: List[Dict[str, Any]]) -> str:
+def to_markdown(validated_ledger_data: List[Dict[str, Any]]) -> str:
+    """
+    Downstream Markdown Projection Engine.
+    Consumes post-quarantine, validated atom records to guarantee that isolated 
+    quarantine anomalies or standalone punctuation fragments do not propagate to the view.
+    """
     lines: List[str] = []
-    for item in ledger_data:
+    
+    for item in validated_ledger_data:
+        # Downstream Safety Gate: Filter out quarantined state records if passed directly
+        if item.get("State") == "Quarantined":
+            continue
+
         style: str = item["Style"].lower()
-        content: str = item.get("CleanContent", item["Content"])
+        content: str = item.get("CleanContent", item.get("Content", "")).strip()
+
+        # Filter out standalone punctuation artifacts or empty nodes
+        if not content or content in [".", ",", ";", ":", "-"]:
+            continue
+
         if "heading 1" in style:
             lines.append(f"# {content}\n")
         elif "heading 2" in style:
@@ -628,6 +643,7 @@ def to_markdown(ledger_data: List[Dict[str, Any]]) -> str:
             lines.append(f"### {content}\n")
         else:
             lines.append(f"{content}\n")
+
     return "\n".join(lines)
 
 
@@ -839,6 +855,7 @@ def main() -> None:
                 st.info("No validated atoms available for Pulse Graph visualization.")
 
         with tab2:
+            # Downstream Render Projection: Pass post-quarantine, validated display atoms
             st.markdown(to_markdown(display_validated))
 
         with tab3:
