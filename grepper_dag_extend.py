@@ -1,8 +1,8 @@
 """
-Chestnut TRACE: Comparative Governance Engine (v4.3 - Graph Pre-Flight & Template Compare Edition)
+Chestnut TRACE: Comparative Governance Engine (v5.0 - Fully Structural Graph Edition)
 Adaptive Multi-Persona Governance Engine with Parameterized Node Coalescing,
-Relative Delta Dewey Coordinates, Normal-Text Origin Vectors, Calibrated Vector Quarantine,
-Section-Scoped Subtree Remediation, & Automated Pre-Flight Manifest Generation.
+Explicit Tabular Matrix Coordinates, Atom Boundary Repair, Clean Vector Text Streams,
+Section-Scoped Subtree Remediation, & Multi-Part Document Ingestion.
 """
 
 from dataclasses import dataclass, field
@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-# WordprocessingML Namespace Constant
+# WordprocessingML Namespace Constants
 NS_W: str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 NS_MAP: Dict[str, str] = {"w": NS_W}
 
@@ -54,7 +54,7 @@ class StyleDisplacementVector:
 
 @dataclass
 class ChestnutNode:
-    """DAG Node representing an OOXML structural element with Relative Delta Coordinates."""
+    """DAG Node representing an OOXML structural element with Explicit Tabular Geometry & Metadata."""
 
     node_id: str
     dewey_id: str              # Full absolute coordinate or local relative delta string
@@ -63,10 +63,23 @@ class ChestnutNode:
     path: str
     normalized_path: str
     text: str = ""
+    clean_text: str = ""        # Vector-friendly text without formatting noise/leader dots
     style_id: str = "Normal"
     depth: int = 0              # Structural distance (ΔDs) from origin
     in_table: bool = False
     in_textbox: bool = False
+    
+    # Explicit Tabular Topology Metadata
+    row_index: Optional[int] = None
+    column_index: Optional[int] = None
+    is_header_cell: bool = False
+    header_for: List[str] = field(default_factory=list)
+    grid_span: int = 1
+    
+    # Inferred/Extracted Metadata Tags
+    inferred_category: Optional[str] = None
+    extracted_dates: List[str] = field(default_factory=list)
+    
     style_vector: StyleDisplacementVector = field(default_factory=StyleDisplacementVector)
     parent_id: Optional[str] = None
     children: List["ChestnutNode"] = field(default_factory=list)
@@ -76,9 +89,9 @@ class ChestnutNode:
         is_leaf: float = 1.0 if not self.children else 0.0
         return np.array(
             [
-                float(self.depth),                             # ΔDs (Structural Distance)
+                float(self.depth),                                   # ΔDs (Structural Distance)
                 -1.0 if (self.in_table or self.in_textbox) else 1.0, # Topological Parity ΔDp
-                self.style_vector.magnitude(),                 # ΔDt (Style Displacement)
+                self.style_vector.magnitude(),                       # ΔDt (Style Displacement)
                 is_leaf,
             ],
             dtype=np.float64,
@@ -133,7 +146,12 @@ class ResolutionMatrix:
 
 
 class StructuralCompiler:
-    """Parses OOXML document parts into a Chestnut DAG using Origin-Relative Delta Topology."""
+    """Parses OOXML document parts into a Chestnut DAG using Origin-Relative Delta Topology & Tabular Analysis."""
+
+    DATE_PATTERN: re.Pattern = re.compile(
+        r"\b(?:\d{1,2}/\d{1,2}/\d{2,4}|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{1,2},? \d{4}|\d{4}-\d{2}-\d{2})\b",
+        re.IGNORECASE,
+    )
 
     def __init__(self, doc_file: Any, doc_name: str) -> None:
         self.doc_name: str = doc_name
@@ -141,6 +159,7 @@ class StructuralCompiler:
         self.styles: Dict[str, str] = self._load_styles()
         self.resolution_matrix: ResolutionMatrix = ResolutionMatrix()
         self.last_anchor_dewey: str = "1"
+        self.current_category: Optional[str] = None
 
     def _load_styles(self) -> Dict[str, str]:
         styles: Dict[str, str] = {}
@@ -163,12 +182,42 @@ class StructuralCompiler:
     def _generate_node_id(self, dewey_id: str) -> str:
         return f"urn:trace:doc:{self.doc_name}:node:dewey:{dewey_id}"
 
-    def build_dag(self, part_name: str = "word/document.xml") -> ChestnutNode:
-        with self.archive.open(part_name) as f:
-            root: ET._Element = ET.parse(f).getroot()
-            return self._traverse(
-                root, current_path="", depth=0, parent_id=None, dewey_id="1", anchor_dewey="1"
-            )
+    def build_full_dag(self) -> List[ChestnutNode]:
+        """Ingests all document streams (Main Body, Headers, Footers) to prevent data truncation."""
+        roots: List[ChestnutNode] = []
+        
+        # Discover all available parts in zip archive
+        part_names = [f for f in self.archive.namelist() if f.startswith("word/") and f.endswith(".xml")]
+        
+        # Prioritize document.xml as the root index 1
+        if "word/document.xml" in part_names:
+            part_names.remove("word/document.xml")
+            part_names.insert(0, "word/document.xml")
+
+        for idx, part_name in enumerate(part_names, start=1):
+            try:
+                with self.archive.open(part_name) as f:
+                    root_elem: ET._Element = ET.parse(f).getroot()
+                    dewey_prefix = str(idx)
+                    dag_root = self._traverse(
+                        root_elem,
+                        current_path="",
+                        depth=0,
+                        parent_id=None,
+                        dewey_id=dewey_prefix,
+                        anchor_dewey=dewey_prefix,
+                    )
+                    roots.append(dag_root)
+            except Exception:
+                continue
+                
+        return roots
+
+    def _clean_formatting_noise(self, text: str) -> str:
+        """Removes visual leader dots, tab artifacts, and repetitive whitespace for clean text vectors."""
+        cleaned = re.sub(r"[\.…\.]{2,}", " ", text)
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        return cleaned.strip()
 
     def _extract_style_vector(self, element: ET._Element, resolved_style: str) -> StyleDisplacementVector:
         vector = StyleDisplacementVector()
@@ -212,6 +261,8 @@ class StructuralCompiler:
         inherited_style: str = "Normal",
         in_table: bool = False,
         in_textbox: bool = False,
+        row_idx: Optional[int] = None,
+        col_idx: Optional[int] = None,
     ) -> ChestnutNode:
         tag: str = element.tag.split("}")[-1] if isinstance(element.tag, str) else ""
         node_id: str = self._generate_node_id(dewey_id)
@@ -251,11 +302,34 @@ class StructuralCompiler:
         ]
         normalized_path: str = "/".join(path_segments)
 
-        text: str = (
+        raw_text: str = (
             element.text.strip()
             if element.text and element.text.strip()
             else ""
         )
+        clean_text = self._clean_formatting_noise(raw_text)
+
+        # Infer category context from headings
+        if any(h in resolved_style.lower() for h in ["heading", "title"]) and clean_text:
+            self.current_category = clean_text
+
+        extracted_dates = self.DATE_PATTERN.findall(clean_text)
+
+        # Tabular Geometry Metadata Extraction
+        is_header = False
+        grid_span = 1
+        if tag == "tr":
+            trPr = element.find("w:trPr", NS_MAP)
+            if trPr is not None and trPr.find("w:tblHeader", NS_MAP) is not None:
+                is_header = True
+        elif tag == "tc":
+            tcPr = element.find("w:tcPr", NS_MAP)
+            if tcPr is not None:
+                gs = tcPr.find("w:gridSpan", NS_MAP)
+                if gs is not None:
+                    val = gs.get(f"{{{NS_W}}}val")
+                    if val and val.isdigit():
+                        grid_span = int(val)
 
         node: ChestnutNode = ChestnutNode(
             node_id=node_id,
@@ -264,19 +338,41 @@ class StructuralCompiler:
             tag=tag,
             path=raw_path,
             normalized_path=normalized_path,
-            text=text,
+            text=raw_text,
+            clean_text=clean_text,
             style_id=resolved_style,
             depth=depth,
             in_table=in_table,
             in_textbox=in_textbox,
+            row_index=row_idx,
+            column_index=col_idx,
+            is_header_cell=is_header,
+            grid_span=grid_span,
+            inferred_category=self.current_category,
+            extracted_dates=extracted_dates,
             style_vector=style_vector,
             parent_id=parent_id,
         )
 
         child_counter = 1
+        tr_count = 0
         for child in element:
             if isinstance(child.tag, str):
+                child_tag = child.tag.split("}")[-1]
                 child_dewey = f"{dewey_id}.{child_counter}"
+                
+                next_row_idx = row_idx
+                next_col_idx = col_idx
+                
+                if tag == "tbl" and child_tag == "tr":
+                    tr_count += 1
+                    next_row_idx = tr_count
+                elif tag == "tr" and child_tag == "tc":
+                    if next_col_idx is None:
+                        next_col_idx = 1
+                    else:
+                        next_col_idx += 1
+
                 node.children.append(
                     self._traverse(
                         child,
@@ -288,6 +384,8 @@ class StructuralCompiler:
                         inherited_style=node_style,
                         in_table=in_table,
                         in_textbox=in_textbox,
+                        row_idx=next_row_idx,
+                        col_idx=next_col_idx,
                     )
                 )
                 child_counter += 1
@@ -312,6 +410,13 @@ class StructuralCompiler:
                 "StyleDeltaMagnitude": round(node.style_vector.magnitude(), 2),
                 "Path": node.normalized_path,
                 "Content": node.text,
+                "CleanContent": node.clean_text,
+                "RowIndex": node.row_index,
+                "ColumnIndex": node.column_index,
+                "IsHeaderCell": node.is_header_cell,
+                "GridSpan": node.grid_span,
+                "InferredCategory": node.inferred_category,
+                "ExtractedDates": node.extracted_dates,
                 "TopologicalParity": -1 if node.in_table or node.in_textbox else 1,
                 "RemediationHistory": [],
             }
@@ -325,13 +430,13 @@ class StructuralCompiler:
             self.bifurcate(child, ledger)
 
 
-# --- Node Coalescing Transformation ---
+# --- Node Coalescing & Boundary Repair Transformation ---
 
 
 def coalesce_atoms(
     atoms: List[Dict[str, Any]], strict_parent_matching: bool = True
 ) -> List[Dict[str, Any]]:
-    """Coalesces adjacent sibling ChestnutAtoms while preserving relative Dewey boundaries."""
+    """Coalesces adjacent sibling atoms, repairs broken word boundaries, and aggregates explicit table metadata."""
     if not atoms:
         return []
 
@@ -351,14 +456,28 @@ def coalesce_atoms(
             text1 = current_node.get("Content", "")
             text2 = next_node.get("Content", "")
 
+            clean1 = current_node.get("CleanContent", "")
+            clean2 = next_node.get("CleanContent", "")
+
             start_dewey = current_node["DeweyID"].split("-")[0]
             end_dewey = next_node["DeweyID"].split("-")[-1]
             current_node["DeweyID"] = f"{start_dewey}-{end_dewey}"
 
-            if text2 in [".", ",", ";", ":", "s", "s.", " "]:
+            # Word Boundary Repair Logic: Merge without trailing spaces for punctuation or broken word fragments
+            if text2 in [".", ",", ";", ":", "s", "s.", " ", ")", "]"] or text1.endswith("-"):
                 current_node["Content"] = f"{text1}{text2}"
             else:
                 current_node["Content"] = f"{text1} {text2}".strip()
+
+            if clean2 in [".", ",", ";", ":", "s", "s.", " ", ")", "]"] or clean1.endswith("-"):
+                current_node["CleanContent"] = f"{clean1}{clean2}"
+            else:
+                current_node["CleanContent"] = f"{clean1} {clean2}".strip()
+
+            # Merge aggregated dates
+            current_node["ExtractedDates"] = list(
+                set(current_node.get("ExtractedDates", []) + next_node.get("ExtractedDates", []))
+            )
         else:
             coalesced.append(current_node)
             current_node = dict(next_node)
@@ -367,7 +486,7 @@ def coalesce_atoms(
     return coalesced
 
 
-# --- Repurposed Template Compare & Pre-Flight Engine ---
+# --- Template Compare & Pre-Flight Engine ---
 
 
 class TemplateCompareEngine:
@@ -386,7 +505,6 @@ class TemplateCompareEngine:
         missing_sections = list(ref_headings - var_headings)
         added_sections = list(var_headings - ref_headings)
 
-        # Estimate raw document token footprint vs JSON-LD graph payload token footprint
         raw_text = " ".join([a["Content"] for a in self.var_atoms + self.var_quarantine])
         raw_token_count = max(1, len(raw_text) // 4)
 
@@ -413,7 +531,7 @@ class TemplateCompareEngine:
         }
 
 
-# --- JSON-LD Exporter ---
+# --- Fully Enriched JSON-LD Exporter ---
 
 
 def export_to_json_ld_dict(
@@ -433,6 +551,7 @@ def export_to_json_ld_dict(
             "@type": [schema_type, "trace:ChestnutAtom"],
             "schema:name": atom["Style"],
             "schema:text": atom["Content"],
+            "trace:cleanText": atom.get("CleanContent", atom["Content"]),
             "trace:deweyCoordinate": atom["DeweyID"],
             "trace:deltaDeweyCoordinate": atom.get("DeltaDewey", atom["DeweyID"]),
             "trace:deweyDepth": atom["DeweyDepth"],
@@ -442,6 +561,22 @@ def export_to_json_ld_dict(
             "trace:semanticState": atom["State"],
             "trace:topologicalParity": atom["TopologicalParity"],
         }
+
+        # Add explicit tabular coordinates if present
+        if atom.get("RowIndex") is not None:
+            ld_node["trace:rowIndex"] = atom["RowIndex"]
+        if atom.get("ColumnIndex") is not None:
+            ld_node["trace:columnIndex"] = atom["ColumnIndex"]
+        if atom.get("GridSpan", 1) > 1:
+            ld_node["trace:gridSpan"] = atom["GridSpan"]
+        if atom.get("IsHeaderCell"):
+            ld_node["trace:isHeaderCell"] = True
+
+        # Add enriched metadata attributes
+        if atom.get("InferredCategory"):
+            ld_node["trace:inferredCategory"] = atom["InferredCategory"]
+        if atom.get("ExtractedDates"):
+            ld_node["trace:extractedDates"] = atom["ExtractedDates"]
 
         if atom.get("RemediationHistory"):
             ld_node["trace:remediationHistory"] = atom["RemediationHistory"]
@@ -484,7 +619,7 @@ def to_markdown(ledger_data: List[Dict[str, Any]]) -> str:
     lines: List[str] = []
     for item in ledger_data:
         style: str = item["Style"].lower()
-        content: str = item["Content"]
+        content: str = item.get("CleanContent", item["Content"])
         if "heading 1" in style:
             lines.append(f"# {content}\n")
         elif "heading 2" in style:
@@ -500,9 +635,9 @@ def to_markdown(ledger_data: List[Dict[str, Any]]) -> str:
 
 
 def main() -> None:
-    st.set_page_config(layout="wide", page_title="Chestnut TRACE Engine")
+    st.set_page_config(layout="wide", page_title="Chestnut TRACE Engine v5.0")
 
-    # --- Sidebar Persona & View Controls ---
+    # Sidebar Persona & View Controls
     st.sidebar.title("TRACE Control Surface")
 
     persona_mode = st.sidebar.selectbox(
@@ -523,7 +658,7 @@ def main() -> None:
     default_strict_parent = persona_mode == "System Auditor (Lossless Mode)"
 
     enable_coalesce = st.sidebar.toggle(
-        "Enable Node Coalescing (Consolidate Runs)", value=default_coalesce
+        "Enable Node Coalescing & Boundary Repair", value=default_coalesce
     )
     strict_parent_matching = st.sidebar.toggle(
         "Strict Parent Container Matching", value=default_strict_parent
@@ -535,7 +670,7 @@ def main() -> None:
         "Show Node IDs & Parent Links", value=default_show_ids
     )
 
-    st.title("Chestnut TRACE: Comparative Governance Engine")
+    st.title("Chestnut TRACE: Comparative Governance Engine (v5.0)")
 
     mode: str = st.radio(
         "Audit Mode", ["Single SOP Audit", "Template vs. Variant"], horizontal=True
@@ -543,8 +678,6 @@ def main() -> None:
 
     if "processed_data" not in st.session_state:
         st.session_state.processed_data = {}
-
-    processed: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
 
     if mode == "Single SOP Audit":
         uploaded_files = st.file_uploader(
@@ -557,13 +690,14 @@ def main() -> None:
             for file in uploaded_files:
                 if file.name not in st.session_state.processed_data:
                     compiler = StructuralCompiler(file, file.name)
-                    root = compiler.build_dag("word/document.xml")
+                    dag_roots = compiler.build_full_dag()
                     ledger: Dict[str, List[Dict[str, Any]]] = {
                         "Validated": [],
                         "Quarantined": [],
                         "Pruned": [],
                     }
-                    compiler.bifurcate(root, ledger)
+                    for root in dag_roots:
+                        compiler.bifurcate(root, ledger)
                     st.session_state.processed_data[file.name] = ledger
 
     elif mode == "Template vs. Variant":
@@ -579,16 +713,16 @@ def main() -> None:
             for file in [ref_file] + var_files:
                 if file.name not in st.session_state.processed_data:
                     compiler = StructuralCompiler(file, file.name)
-                    root = compiler.build_dag("word/document.xml")
+                    dag_roots = compiler.build_full_dag()
                     ledger: Dict[str, List[Dict[str, Any]]] = {
                         "Validated": [],
                         "Quarantined": [],
                         "Pruned": [],
                     }
-                    compiler.bifurcate(root, ledger)
+                    for root in dag_roots:
+                        compiler.bifurcate(root, ledger)
                     st.session_state.processed_data[file.name] = ledger
 
-            # --- Phase 1: Structural & Pre-Flight Run UI ---
             st.divider()
             st.subheader("⚙️ Phase 1: Structural & Semantic Pre-Flight Audit")
 
@@ -599,7 +733,6 @@ def main() -> None:
             compare_engine = TemplateCompareEngine(ref_ledger, var_ledger)
             manifest = compare_engine.execute_preflight_check()
 
-            # Render Real-time Pre-Flight Status Badge
             status_color = "green" if manifest["status"] == "PASSED" else "orange"
             st.markdown(f":{status_color}[**Pre-Flight Status:** {manifest['status']}] • **Governance Confidence:** `{manifest['governance_confidence']}`")
 
@@ -627,7 +760,6 @@ def main() -> None:
         quarantined_data = file_ledger["Quarantined"]
         pruned_data = file_ledger.get("Pruned", [])
 
-        # Apply Coalescing based on toggle configuration
         display_validated = (
             coalesce_atoms(
                 raw_validated, strict_parent_matching=strict_parent_matching
@@ -636,7 +768,6 @@ def main() -> None:
             else raw_validated
         )
 
-        # Executive Governance Metrics
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Display Atoms", len(display_validated))
         m2.metric("Raw Structural Atoms", len(raw_validated))
@@ -693,11 +824,11 @@ def main() -> None:
                             "DeltaDewey",
                             "DeweyDepth",
                             "Style",
-                            "StyleDeltaMagnitude",
-                            "Confidence",
-                            "TopologicalParity",
-                            "Path",
-                            "Content",
+                            "RowIndex",
+                            "ColumnIndex",
+                            "InferredCategory",
+                            "ExtractedDates",
+                            "CleanContent",
                         ],
                     )
                     .properties(height=380)
@@ -712,7 +843,7 @@ def main() -> None:
 
         with tab3:
             df_ledger = pd.DataFrame(display_validated)
-            cols_to_show = ["Content", "Style"]
+            cols_to_show = ["CleanContent", "Style", "RowIndex", "ColumnIndex", "InferredCategory", "ExtractedDates"]
 
             if show_node_ids:
                 cols_to_show = ["DeweyID", "DeltaDewey", "NodeID", "ParentID"] + cols_to_show
@@ -730,7 +861,7 @@ def main() -> None:
                 df_aux = pd.DataFrame(aux_atoms)
                 st.caption("Reviewing captured non-body, floating, frame, or callout elements:")
                 st.dataframe(
-                    df_aux[["DeweyID", "Style", "Path", "Content", "TopologicalParity"]],
+                    df_aux[["DeweyID", "Style", "Path", "CleanContent", "TopologicalParity"]],
                     use_container_width=True,
                 )
             else:
@@ -738,14 +869,12 @@ def main() -> None:
 
             st.divider()
 
-            # --- Section-Scoped Quarantine Remediation UI ---
             st.subheader("Vector Quarantine Isolation & Scoped Remediation")
             if quarantined_data:
                 st.error(
                     f"Quarantine Containment: {len(quarantined_data)} semantic or visual anomalies isolated."
                 )
 
-                # Extract unique quarantine subtrees/sections
                 quarantine_prefixes = sorted(list(set([a["DeweyID"].split(".")[0] for a in quarantined_data])))
                 
                 selected_prefix = st.selectbox(
@@ -759,7 +888,7 @@ def main() -> None:
                 st.caption(f"Displaying {len(scoped_items)} quarantined atoms within Subtree Root `{selected_prefix}`:")
                 df_scoped = pd.DataFrame(scoped_items)
                 st.dataframe(
-                    df_scoped[["DeweyID", "Style", "StyleDeltaMagnitude", "Content", "State"]],
+                    df_scoped[["DeweyID", "Style", "StyleDeltaMagnitude", "CleanContent", "State"]],
                     use_container_width=True,
                 )
 
@@ -794,7 +923,7 @@ def main() -> None:
 
             st.subheader("Interoperable Knowledge Graph (JSON-LD)")
             st.caption(
-                "Export structured RDF graph containing absolute and delta Dewey coordinates, style displacement vectors, state collapse metrics, and explicit DAG parent-child pointers."
+                "Export structured RDF graph containing absolute and delta Dewey coordinates, explicit tabular row/col indices, repaired text streams, and category tags."
             )
 
             st.download_button(
