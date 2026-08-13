@@ -3,8 +3,10 @@ Chestnut TRACE: Comparative Governance Engine (v5.0 - Fully Structural Graph Edi
 Adaptive Multi-Persona Governance Engine with Parameterized Node Coalescing,
 Explicit Tabular Matrix Coordinates, Atom Boundary Repair, Clean Vector Text Streams,
 Section-Scoped Subtree Remediation, Multi-Part Document Ingestion, & Downstream Post-Quarantine Rendering.
+Includes MIMD Dual-Stream Parallel Execution & Reconciliation Engine.
 """
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 import json
 import re
@@ -69,12 +71,13 @@ class ChestnutNode:
     in_table: bool = False
     in_textbox: bool = False
     
-    # Explicit Tabular Topology Metadata
+    # Explicit Tabular & Layout Geometry Metadata
     row_index: Optional[int] = None
     column_index: Optional[int] = None
     is_header_cell: bool = False
     header_for: List[str] = field(default_factory=list)
     grid_span: int = 1
+    has_virtual_tab: bool = False
     
     # Inferred/Extracted Metadata Tags
     inferred_category: Optional[str] = None
@@ -117,19 +120,19 @@ class ResolutionMatrix:
         if any(trigger in text_lower for trigger in self.ANOMALY_TRIGGERS):
             return "Quarantined", 0.9900
 
-        # 2. Native Headings — Intended Displacements (EXEMPT from standard ΔDt style quarantine)
+        # 2. Native Headings — Intended Displacements
         if any(h in style_lower for h in ["heading", "title", "subtitle"]):
             return "Native_Heading", 0.9500
 
-        # 3. Native Tabular
-        if node.in_table:
+        # 3. Native Tabular / Virtual Layout Grid
+        if node.in_table or node.has_virtual_tab:
             return "Native_Tabular", 0.9436
 
-        # 4. Extreme Style Displacement Quarantine (ΔDt) for Body/Prose Elements
+        # 4. Extreme Style Displacement Quarantine (ΔDt)
         if node.style_vector.magnitude() > max_style_delta_threshold:
             return "Quarantined", 0.9200
 
-        # 5. Auxiliary Container Catch-All Bucket
+        # 5. Auxiliary Container Catch-All
         is_auxiliary: bool = (
             node.in_textbox
             or any(seg in path_lower for seg in ["header", "footer", "frame", "sidebar"])
@@ -141,24 +144,167 @@ class ResolutionMatrix:
         if is_auxiliary:
             return "Auxiliary_Container", 0.9100
 
-        # 6. Native Body Prose Default (Normal Text Ground)
+        # 6. Native Body Prose Default
         return "Native_Prose", 0.8750
 
 
-class StructuralCompiler:
-    """Parses OOXML document parts into a Chestnut DAG using Origin-Relative Delta Topology & Tabular Analysis."""
+# --- MIMD Parallel Execution Engine Streams ---
+
+
+class ContentWorkerStreamA:
+    """Stream A Worker: Instruction set focused strictly on text extraction, tab delimiters, & token hygiene."""
+
+    @staticmethod
+    def _clean_formatting_noise(text: str) -> str:
+        cleaned = re.sub(r"[\.…\.]{2,}", " ", text)
+        cleaned = re.sub(r"[ \r\n\f\v]+", " ", cleaned)
+        return cleaned.strip()
+
+    def process(self, root_elem: ET._Element) -> Dict[str, Dict[str, str]]:
+        content_map = {}
+
+        def _traverse_content(elem: ET._Element, path_id: str):
+            tag = elem.tag.split("}")[-1] if isinstance(elem.tag, str) else ""
+            
+            raw_text = ""
+            if tag == "tab":
+                raw_text = "\t"
+            elif elem.text:
+                raw_text = elem.text
+
+            clean_text = self._clean_formatting_noise(raw_text)
+            content_map[path_id] = {
+                "raw_text": raw_text,
+                "clean_text": clean_text
+            }
+
+            child_counter = 1
+            for child in elem:
+                if isinstance(child.tag, str):
+                    _traverse_content(child, f"{path_id}.{child_counter}")
+                    child_counter += 1
+
+        _traverse_content(root_elem, "1")
+        return content_map
+
+
+class TopologyWorkerStreamB:
+    """Stream B Worker: Instruction set focused strictly on Dewey coordinates, XML DOM paths, & layout geometry."""
 
     DATE_PATTERN: re.Pattern = re.compile(
         r"\b(?:\d{1,2}/\d{1,2}/\d{2,4}|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{1,2},? \d{4}|\d{4}-\d{2}-\d{2})\b",
         re.IGNORECASE,
     )
 
+    def process(self, root_elem: ET._Element, styles_map: Dict[str, str]) -> Dict[str, Dict[str, Any]]:
+        topology_map = {}
+
+        def _traverse_topology(
+            elem: ET._Element,
+            dewey_id: str,
+            current_path: str,
+            depth: int,
+            inherited_style: str = "Normal",
+            in_table: bool = False,
+            in_textbox: bool = False,
+            row_idx: Optional[int] = None,
+            col_idx: Optional[int] = None,
+        ):
+            tag = elem.tag.split("}")[-1] if isinstance(elem.tag, str) else ""
+
+            if tag == "tbl":
+                in_table = True
+            elif tag == "txbxContent":
+                in_textbox = True
+
+            node_style = inherited_style
+            if tag == "p":
+                p_style = elem.find("w:pPr/w:pStyle", NS_MAP)
+                if p_style is not None:
+                    val = p_style.get(f"{{{NS_W}}}val")
+                    if val:
+                        node_style = val
+
+            resolved_style = styles_map.get(node_style, node_style)
+            raw_path = f"{current_path}/{tag}" if current_path else tag
+            path_segments = [seg for seg in raw_path.split("/") if seg not in TRANSIENT_TAGS]
+            normalized_path = "/".join(path_segments)
+
+            has_tab = False
+            if tag == "r" and elem.find("w:tab", NS_MAP) is not None:
+                has_tab = True
+
+            is_header = False
+            grid_span = 1
+            if tag == "tr":
+                trPr = elem.find("w:trPr", NS_MAP)
+                if trPr is not None and trPr.find("w:tblHeader", NS_MAP) is not None:
+                    is_header = True
+            elif tag == "tc":
+                tcPr = elem.find("w:tcPr", NS_MAP)
+                if tcPr is not None:
+                    gs = tcPr.find("w:gridSpan", NS_MAP)
+                    if gs is not None:
+                        val = gs.get(f"{{{NS_W}}}val")
+                        if val and val.isdigit():
+                            grid_span = int(val)
+
+            topology_map[dewey_id] = {
+                "tag": tag,
+                "path": raw_path,
+                "normalized_path": normalized_path,
+                "style_id": resolved_style,
+                "depth": depth,
+                "in_table": in_table,
+                "in_textbox": in_textbox,
+                "row_index": row_idx,
+                "column_index": col_idx,
+                "is_header": is_header,
+                "grid_span": grid_span,
+                "has_virtual_tab": has_tab,
+            }
+
+            child_counter = 1
+            tr_count = 0
+            for child in elem:
+                if isinstance(child.tag, str):
+                    child_tag = child.tag.split("}")[-1]
+                    child_dewey = f"{dewey_id}.{child_counter}"
+                    
+                    next_row_idx = row_idx
+                    next_col_idx = col_idx
+                    
+                    if tag == "tbl" and child_tag == "tr":
+                        tr_count += 1
+                        next_row_idx = tr_count
+                    elif tag == "tr" and child_tag == "tc":
+                        next_col_idx = (next_col_idx or 0) + 1
+
+                    _traverse_topology(
+                        child,
+                        child_dewey,
+                        current_path=raw_path,
+                        depth=depth + 1,
+                        inherited_style=node_style,
+                        in_table=in_table,
+                        in_textbox=in_textbox,
+                        row_idx=next_row_idx,
+                        col_idx=next_col_idx,
+                    )
+                    child_counter += 1
+
+        _traverse_topology(root_elem, "1", "", 0)
+        return topology_map
+
+
+class StructuralCompiler:
+    """MIMD Master Compiler: Orchestrates Stream A & Stream B parallel threads and reconciles outputs."""
+
     def __init__(self, doc_file: Any, doc_name: str) -> None:
         self.doc_name: str = doc_name
         self.archive: zipfile.ZipFile = zipfile.ZipFile(doc_file)
         self.styles: Dict[str, str] = self._load_styles()
         self.resolution_matrix: ResolutionMatrix = ResolutionMatrix()
-        self.last_anchor_dewey: str = "1"
         self.current_category: Optional[str] = None
 
     def _load_styles(self) -> Dict[str, str]:
@@ -167,14 +313,10 @@ class StructuralCompiler:
             with self.archive.open("word/styles.xml") as f:
                 root: ET._Element = ET.parse(f).getroot()
                 for style in root.findall(".//w:style", NS_MAP):
-                    s_id: Optional[str] = style.get(f"{{{NS_W}}}styleId")
-                    name_elem: Optional[ET._Element] = style.find(".//w:name", NS_MAP)
+                    s_id = style.get(f"{{{NS_W}}}val") or style.get(f"{{{NS_W}}}styleId")
+                    name_elem = style.find(".//w:name", NS_MAP)
                     if s_id:
-                        styles[s_id] = (
-                            name_elem.get(f"{{{NS_W}}}val")
-                            if name_elem is not None
-                            else s_id
-                        )
+                        styles[s_id] = name_elem.get(f"{{{NS_W}}}val") if name_elem is not None else s_id
         except (KeyError, ET.ParseError):
             pass
         return styles
@@ -183,13 +325,10 @@ class StructuralCompiler:
         return f"urn:trace:doc:{self.doc_name}:node:dewey:{dewey_id}"
 
     def build_full_dag(self) -> List[ChestnutNode]:
-        """Ingests all document streams (Main Body, Headers, Footers) to prevent data truncation."""
+        """Runs Stream A and Stream B in parallel threads, then passes outputs to Reconciliation Engine."""
         roots: List[ChestnutNode] = []
-        
-        # Discover all available parts in zip archive
         part_names = [f for f in self.archive.namelist() if f.startswith("word/") and f.endswith(".xml")]
         
-        # Prioritize document.xml as the root index 1
         if "word/document.xml" in part_names:
             part_names.remove("word/document.xml")
             part_names.insert(0, "word/document.xml")
@@ -198,204 +337,106 @@ class StructuralCompiler:
             try:
                 with self.archive.open(part_name) as f:
                     root_elem: ET._Element = ET.parse(f).getroot()
-                    dewey_prefix = str(idx)
-                    dag_root = self._traverse(
-                        root_elem,
-                        current_path="",
-                        depth=0,
-                        parent_id=None,
-                        dewey_id=dewey_prefix,
-                        anchor_dewey=dewey_prefix,
-                    )
+                    prefix = str(idx)
+
+                    # --- MIMD Thread Pool Execution ---
+                    worker_a = ContentWorkerStreamA()
+                    worker_b = TopologyWorkerStreamB()
+
+                    with ThreadPoolExecutor(max_workers=2) as executor:
+                        future_a = executor.submit(worker_a.process, root_elem)
+                        future_b = executor.submit(worker_b.process, root_elem, self.styles)
+
+                        content_map = future_a.result()
+                        topology_map = future_b.result()
+
+                    # --- Stream Reconciliation Node ---
+                    dag_root = self._reconcile_streams(prefix, content_map, topology_map)
                     roots.append(dag_root)
+
             except Exception:
                 continue
-                
+
         return roots
 
-    def _clean_formatting_noise(self, text: str) -> str:
-        """Removes visual leader dots, tab artifacts, and repetitive whitespace for clean text vectors."""
-        cleaned = re.sub(r"[\.…\.]{2,}", " ", text)
-        cleaned = re.sub(r"\s+", " ", cleaned)
-        return cleaned.strip()
-
-    def _extract_style_vector(self, element: ET._Element, resolved_style: str) -> StyleDisplacementVector:
-        vector = StyleDisplacementVector()
-        style_lower = resolved_style.lower()
-
-        if "normal" not in style_lower and "body" not in style_lower:
-            vector.is_custom_style = True
-
-        if "heading 1" in style_lower:
-            vector.size_offset_pt = 9.0
-            vector.weight_delta = 1
-        elif "heading 2" in style_lower:
-            vector.size_offset_pt = 5.0
-            vector.weight_delta = 1
-        elif "heading 3" in style_lower:
-            vector.size_offset_pt = 2.0
-            vector.weight_delta = 1
-
-        rPr = element.find("w:rPr", NS_MAP)
-        if rPr is not None:
-            if rPr.find("w:b", NS_MAP) is not None:
-                vector.weight_delta = 1
-            if rPr.find("w:i", NS_MAP) is not None:
-                vector.italic_delta = 1
-            sz = rPr.find("w:sz", NS_MAP)
-            if sz is not None:
-                val = sz.get(f"{{{NS_W}}}val")
-                if val and val.isdigit():
-                    vector.size_offset_pt = (float(val) / 2.0) - 11.0
-
-        return vector
-
-    def _traverse(
-        self,
-        element: ET._Element,
-        current_path: str,
-        depth: int,
-        parent_id: Optional[str],
-        dewey_id: str,
-        anchor_dewey: str,
-        inherited_style: str = "Normal",
-        in_table: bool = False,
-        in_textbox: bool = False,
-        row_idx: Optional[int] = None,
-        col_idx: Optional[int] = None,
+    def _reconcile_streams(
+        self, prefix: str, content_map: Dict[str, Dict[str, str]], topology_map: Dict[str, Dict[str, Any]]
     ) -> ChestnutNode:
-        tag: str = element.tag.split("}")[-1] if isinstance(element.tag, str) else ""
-        node_id: str = self._generate_node_id(dewey_id)
+        """Joins Stream A (Text/Tabs) and Stream B (Dewey Topology) into unified Chestnut DAG Nodes."""
+        
+        nodes_dict: Dict[str, ChestnutNode] = {}
+        anchor_dewey = prefix
 
-        if tag == "tbl":
-            in_table = True
-        elif tag == "txbxContent":
-            in_textbox = True
+        for raw_key, topo in topology_map.items():
+            # Adjust local keys with document part prefix
+            dewey_id = f"{prefix}.{raw_key}" if raw_key != "1" else prefix
+            node_id = self._generate_node_id(dewey_id)
 
-        node_style: str = inherited_style
-        if tag == "p":
-            p_style: Optional[ET._Element] = element.find("w:pPr/w:pStyle", NS_MAP)
-            if p_style is not None:
-                val: Optional[str] = p_style.get(f"{{{NS_W}}}val")
-                if val:
-                    node_style = val
-        elif tag == "r":
-            r_style: Optional[ET._Element] = element.find("w:rPr/w:rStyle", NS_MAP)
-            if r_style is not None:
-                val: Optional[str] = r_style.get(f"{{{NS_W}}}val")
-                if val:
-                    node_style = val
+            content = content_map.get(raw_key, {"raw_text": "", "clean_text": ""})
+            raw_text = content["raw_text"]
+            clean_text = content["clean_text"]
 
-        resolved_style: str = self.styles.get(node_style, node_style)
-        style_vector = self._extract_style_vector(element, resolved_style)
+            resolved_style = topo["style_id"]
 
-        if any(h in resolved_style.lower() for h in ["heading", "title"]):
-            anchor_dewey = dewey_id
-            delta_dewey = dewey_id
-        else:
-            delta_offset = dewey_id.replace(f"{anchor_dewey}.", "+")
-            delta_dewey = delta_offset if delta_offset.startswith("+") else f"+{dewey_id}"
+            if any(h in resolved_style.lower() for h in ["heading", "title"]) and clean_text:
+                self.current_category = clean_text
+                anchor_dewey = dewey_id
 
-        raw_path: str = f"{current_path}/{tag}" if current_path else tag
-        path_segments: List[str] = [
-            seg for seg in raw_path.split("/") if seg not in TRANSIENT_TAGS
-        ]
-        normalized_path: str = "/".join(path_segments)
+            if any(h in resolved_style.lower() for h in ["heading", "title"]):
+                delta_dewey = dewey_id
+            else:
+                delta_offset = dewey_id.replace(f"{anchor_dewey}.", "+")
+                delta_dewey = delta_offset if delta_offset.startswith("+") else f"+{dewey_id}"
 
-        raw_text: str = (
-            element.text.strip()
-            if element.text and element.text.strip()
-            else ""
-        )
-        clean_text = self._clean_formatting_noise(raw_text)
+            # Calculate Style Displacement Vector
+            style_vector = StyleDisplacementVector()
+            if "heading 1" in resolved_style.lower():
+                style_vector.size_offset_pt = 9.0
+                style_vector.weight_delta = 1
+            elif "heading 2" in resolved_style.lower():
+                style_vector.size_offset_pt = 5.0
+                style_vector.weight_delta = 1
 
-        # Infer category context from headings
-        if any(h in resolved_style.lower() for h in ["heading", "title"]) and clean_text:
-            self.current_category = clean_text
+            node = ChestnutNode(
+                node_id=node_id,
+                dewey_id=dewey_id,
+                delta_dewey=delta_dewey,
+                tag=topo["tag"],
+                path=topo["path"],
+                normalized_path=topo["normalized_path"],
+                text=raw_text,
+                clean_text=clean_text,
+                style_id=resolved_style,
+                depth=topo["depth"],
+                in_table=topo["in_table"],
+                in_textbox=topo["in_textbox"],
+                row_index=topo["row_index"],
+                column_index=topo["column_index"],
+                is_header_cell=topo["is_header"],
+                grid_span=topo["grid_span"],
+                has_virtual_tab=topo["has_virtual_tab"],
+                inferred_category=self.current_category,
+                extracted_dates=TopologyWorkerStreamB.DATE_PATTERN.findall(clean_text),
+                style_vector=style_vector,
+            )
 
-        extracted_dates = self.DATE_PATTERN.findall(clean_text)
+            nodes_dict[raw_key] = node
 
-        # Tabular Geometry Metadata Extraction
-        is_header = False
-        grid_span = 1
-        if tag == "tr":
-            trPr = element.find("w:trPr", NS_MAP)
-            if trPr is not None and trPr.find("w:tblHeader", NS_MAP) is not None:
-                is_header = True
-        elif tag == "tc":
-            tcPr = element.find("w:tcPr", NS_MAP)
-            if tcPr is not None:
-                gs = tcPr.find("w:gridSpan", NS_MAP)
-                if gs is not None:
-                    val = gs.get(f"{{{NS_W}}}val")
-                    if val and val.isdigit():
-                        grid_span = int(val)
+        # Build DAG Hierarchy Connections
+        for raw_key, node in nodes_dict.items():
+            if raw_key != "1":
+                parent_key = ".".join(raw_key.split(".")[:-1])
+                if parent_key in nodes_dict:
+                    parent_node = nodes_dict[parent_key]
+                    node.parent_id = parent_node.node_id
+                    parent_node.children.append(node)
 
-        node: ChestnutNode = ChestnutNode(
-            node_id=node_id,
-            dewey_id=dewey_id,
-            delta_dewey=delta_dewey,
-            tag=tag,
-            path=raw_path,
-            normalized_path=normalized_path,
-            text=raw_text,
-            clean_text=clean_text,
-            style_id=resolved_style,
-            depth=depth,
-            in_table=in_table,
-            in_textbox=in_textbox,
-            row_index=row_idx,
-            column_index=col_idx,
-            is_header_cell=is_header,
-            grid_span=grid_span,
-            inferred_category=self.current_category,
-            extracted_dates=extracted_dates,
-            style_vector=style_vector,
-            parent_id=parent_id,
-        )
-
-        child_counter = 1
-        tr_count = 0
-        for child in element:
-            if isinstance(child.tag, str):
-                child_tag = child.tag.split("}")[-1]
-                child_dewey = f"{dewey_id}.{child_counter}"
-                
-                next_row_idx = row_idx
-                next_col_idx = col_idx
-                
-                if tag == "tbl" and child_tag == "tr":
-                    tr_count += 1
-                    next_row_idx = tr_count
-                elif tag == "tr" and child_tag == "tc":
-                    if next_col_idx is None:
-                        next_col_idx = 1
-                    else:
-                        next_col_idx += 1
-
-                node.children.append(
-                    self._traverse(
-                        child,
-                        current_path=raw_path,
-                        depth=depth + 1,
-                        parent_id=node_id,
-                        dewey_id=child_dewey,
-                        anchor_dewey=anchor_dewey,
-                        inherited_style=node_style,
-                        in_table=in_table,
-                        in_textbox=in_textbox,
-                        row_idx=next_row_idx,
-                        col_idx=next_col_idx,
-                    )
-                )
-                child_counter += 1
-
-        return node
+        return nodes_dict["1"]
 
     def bifurcate(
         self, node: ChestnutNode, ledger: Dict[str, List[Dict[str, Any]]]
     ) -> None:
-        if node.tag == "t" and node.text:
+        if (node.tag == "t" or node.tag == "tab") and (node.text or node.has_virtual_tab):
             state, confidence = self.resolution_matrix.collapse(node)
 
             record: Dict[str, Any] = {
@@ -415,6 +456,7 @@ class StructuralCompiler:
                 "ColumnIndex": node.column_index,
                 "IsHeaderCell": node.is_header_cell,
                 "GridSpan": node.grid_span,
+                "HasVirtualTab": node.has_virtual_tab,
                 "InferredCategory": node.inferred_category,
                 "ExtractedDates": node.extracted_dates,
                 "TopologicalParity": -1 if node.in_table or node.in_textbox else 1,
@@ -463,18 +505,20 @@ def coalesce_atoms(
             end_dewey = next_node["DeweyID"].split("-")[-1]
             current_node["DeweyID"] = f"{start_dewey}-{end_dewey}"
 
-            # Word Boundary Repair Logic: Merge without trailing spaces for punctuation or broken word fragments
             if text2 in [".", ",", ";", ":", "s", "s.", " ", ")", "]"] or text1.endswith("-"):
+                current_node["Content"] = f"{text1}{text2}"
+            elif text2 == "\t" or text1 == "\t":
                 current_node["Content"] = f"{text1}{text2}"
             else:
                 current_node["Content"] = f"{text1} {text2}".strip()
 
             if clean2 in [".", ",", ";", ":", "s", "s.", " ", ")", "]"] or clean1.endswith("-"):
                 current_node["CleanContent"] = f"{clean1}{clean2}"
+            elif clean2 == "\t" or clean1 == "\t":
+                current_node["CleanContent"] = f"{clean1}{clean2}"
             else:
                 current_node["CleanContent"] = f"{clean1} {clean2}".strip()
 
-            # Merge aggregated dates
             current_node["ExtractedDates"] = list(
                 set(current_node.get("ExtractedDates", []) + next_node.get("ExtractedDates", []))
             )
@@ -562,7 +606,6 @@ def export_to_json_ld_dict(
             "trace:topologicalParity": atom["TopologicalParity"],
         }
 
-        # Add explicit tabular coordinates if present
         if atom.get("RowIndex") is not None:
             ld_node["trace:rowIndex"] = atom["RowIndex"]
         if atom.get("ColumnIndex") is not None:
@@ -571,8 +614,9 @@ def export_to_json_ld_dict(
             ld_node["trace:gridSpan"] = atom["GridSpan"]
         if atom.get("IsHeaderCell"):
             ld_node["trace:isHeaderCell"] = True
+        if atom.get("HasVirtualTab"):
+            ld_node["trace:hasVirtualTab"] = True
 
-        # Add enriched metadata attributes
         if atom.get("InferredCategory"):
             ld_node["trace:inferredCategory"] = atom["InferredCategory"]
         if atom.get("ExtractedDates"):
@@ -616,24 +660,21 @@ def get_semantic_rank(style_name: str) -> str:
 
 
 def to_markdown(validated_ledger_data: List[Dict[str, Any]]) -> str:
-    """
-    Downstream Markdown Projection Engine.
-    Consumes post-quarantine, validated atom records to guarantee that isolated 
-    quarantine anomalies or standalone punctuation fragments do not propagate to the view.
-    """
+    """Downstream Markdown Projection Engine."""
     lines: List[str] = []
     
     for item in validated_ledger_data:
-        # Downstream Safety Gate: Filter out quarantined state records if passed directly
         if item.get("State") == "Quarantined":
             continue
 
         style: str = item["Style"].lower()
         content: str = item.get("CleanContent", item.get("Content", "")).strip()
 
-        # Filter out standalone punctuation artifacts or empty nodes
         if not content or content in [".", ",", ";", ":", "-"]:
             continue
+
+        # Format tab delimiters visually for markdown rendering
+        content = content.replace("\t", " | ")
 
         if "heading 1" in style:
             lines.append(f"# {content}\n")
@@ -651,9 +692,8 @@ def to_markdown(validated_ledger_data: List[Dict[str, Any]]) -> str:
 
 
 def main() -> None:
-    st.set_page_config(layout="wide", page_title="Chestnut TRACE Engine v5.0")
+    st.set_page_config(layout="wide", page_title="Chestnut TRACE Engine v5.0 (MIMD Edition)")
 
-    # Sidebar Persona & View Controls
     st.sidebar.title("TRACE Control Surface")
 
     persona_mode = st.sidebar.selectbox(
@@ -686,7 +726,7 @@ def main() -> None:
         "Show Node IDs & Parent Links", value=default_show_ids
     )
 
-    st.title("Chestnut TRACE: Comparative Governance Engine (v5.0)")
+    st.title("Chestnut TRACE: Comparative Governance Engine (v5.0 - MIMD Edition)")
 
     mode: str = st.radio(
         "Audit Mode", ["Single SOP Audit", "Template vs. Variant"], horizontal=True
@@ -763,7 +803,6 @@ def main() -> None:
             if manifest["added_variant_sections"]:
                 st.info(f"ℹ️ Variant Expansion: Additional Sections Detected: {', '.join(manifest['added_variant_sections'])}")
 
-    # Inspection View
     if st.session_state.processed_data:
         st.divider()
         selected_file: str = st.selectbox(
@@ -855,7 +894,6 @@ def main() -> None:
                 st.info("No validated atoms available for Pulse Graph visualization.")
 
         with tab2:
-            # Downstream Render Projection: Pass post-quarantine, validated display atoms
             st.markdown(to_markdown(display_validated))
 
         with tab3:
