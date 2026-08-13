@@ -1,7 +1,7 @@
 """
-Chestnut TRACE: Comparative Governance Engine (v4.0 - Relative Delta & Vector Geometry Edition)
+Chestnut TRACE: Comparative Governance Engine (v4.1 - Intended Displacement & Vector Calibration Edition)
 Adaptive Multi-Persona Governance Engine with Parameterized Node Coalescing,
-Relative Delta Dewey Coordinates, Normal-Text Origin Displacement Vectors, & Vector Quarantine.
+Relative Delta Dewey Coordinates, Normal-Text Origin Vectors, & Calibrated Vector Quarantine.
 """
 
 from dataclasses import dataclass, field
@@ -94,27 +94,28 @@ class ResolutionMatrix:
     }
 
     def collapse(
-        self, node: ChestnutNode, max_style_delta_threshold: float = 4.5
+        self, node: ChestnutNode, max_style_delta_threshold: float = 6.0
     ) -> Tuple[str, float]:
         style_lower: str = node.style_id.lower()
         path_lower: str = node.normalized_path.lower()
         text_lower: str = node.text.lower()
 
-        # 1. Semantic Anomaly / Quarantine Detection (ΔDm)
+        # 1. Semantic Anomaly Check (ΔDm) — High-priority Quarantine
         if any(trigger in text_lower for trigger in self.ANOMALY_TRIGGERS):
             return "Quarantined", 0.9900
 
-        # 2. Extreme Style Displacement Quarantine (ΔDt)
-        if node.style_vector.magnitude() > max_style_delta_threshold:
-            return "Quarantined", 0.9200
-
-        # 3. Native Headings
+        # 2. Native Headings — Intended Displacements (EXEMPT from standard ΔDt style quarantine)
         if any(h in style_lower for h in ["heading", "title", "subtitle"]):
             return "Native_Heading", 0.9500
 
-        # 4. Native Tabular
+        # 3. Native Tabular
         if node.in_table:
             return "Native_Tabular", 0.9436
+
+        # 4. Extreme Style Displacement Quarantine (ΔDt) for Body/Prose Elements
+        # Catches rogue inline formatting (e.g., random massive bold colored text in body paragraphs)
+        if node.style_vector.magnitude() > max_style_delta_threshold:
+            return "Quarantined", 0.9200
 
         # 5. Auxiliary Container Catch-All Bucket
         is_auxiliary: bool = (
