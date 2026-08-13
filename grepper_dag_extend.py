@@ -1,7 +1,8 @@
 """
-Chestnut TRACE: Comparative Governance Engine (v4.1 - Intended Displacement & Vector Calibration Edition)
+Chestnut TRACE: Comparative Governance Engine (v4.2 - Section-Scoped Remediation Edition)
 Adaptive Multi-Persona Governance Engine with Parameterized Node Coalescing,
-Relative Delta Dewey Coordinates, Normal-Text Origin Vectors, & Calibrated Vector Quarantine.
+Relative Delta Dewey Coordinates, Normal-Text Origin Vectors, Calibrated Vector Quarantine,
+& Section-Scoped Subtree Remediation (Approve/Reject).
 """
 
 from dataclasses import dataclass, field
@@ -87,7 +88,6 @@ class ChestnutNode:
 class ResolutionMatrix:
     """Observation Operator resolving XML lineage, styles, and vector anomalies into TRACE States."""
 
-    # Out-of-domain semantic triggers (e.g., leftover clinical/enterprise template noise)
     ANOMALY_TRIGGERS: set[str] = {
         "medidata", "rave", "study inactivation", "crf", "clinical trial",
         "protocol amendment", "sap_v", "inactivation"
@@ -113,7 +113,6 @@ class ResolutionMatrix:
             return "Native_Tabular", 0.9436
 
         # 4. Extreme Style Displacement Quarantine (ΔDt) for Body/Prose Elements
-        # Catches rogue inline formatting (e.g., random massive bold colored text in body paragraphs)
         if node.style_vector.magnitude() > max_style_delta_threshold:
             return "Quarantined", 0.9200
 
@@ -172,14 +171,12 @@ class StructuralCompiler:
             )
 
     def _extract_style_vector(self, element: ET._Element, resolved_style: str) -> StyleDisplacementVector:
-        """Calculates style delta relative to Normal Text origin."""
         vector = StyleDisplacementVector()
         style_lower = resolved_style.lower()
 
         if "normal" not in style_lower and "body" not in style_lower:
             vector.is_custom_style = True
 
-        # Heading font size offsets
         if "heading 1" in style_lower:
             vector.size_offset_pt = 9.0
             vector.weight_delta = 1
@@ -190,7 +187,6 @@ class StructuralCompiler:
             vector.size_offset_pt = 2.0
             vector.weight_delta = 1
 
-        # Check explicit run formatting overrides
         rPr = element.find("w:rPr", NS_MAP)
         if rPr is not None:
             if rPr.find("w:b", NS_MAP) is not None:
@@ -201,7 +197,6 @@ class StructuralCompiler:
             if sz is not None:
                 val = sz.get(f"{{{NS_W}}}val")
                 if val and val.isdigit():
-                    # Word half-points to pt delta from 11pt baseline
                     vector.size_offset_pt = (float(val) / 2.0) - 11.0
 
         return vector
@@ -243,12 +238,10 @@ class StructuralCompiler:
         resolved_style: str = self.styles.get(node_style, node_style)
         style_vector = self._extract_style_vector(element, resolved_style)
 
-        # Calculate Relative Delta Dewey offset from parent/anchor
         if any(h in resolved_style.lower() for h in ["heading", "title"]):
-            anchor_dewey = dewey_id  # Reset origin anchor at structural headings
+            anchor_dewey = dewey_id
             delta_dewey = dewey_id
         else:
-            # Express local position as delta relative to current anchor origin
             delta_offset = dewey_id.replace(f"{anchor_dewey}.", "+")
             delta_dewey = delta_offset if delta_offset.startswith("+") else f"+{dewey_id}"
 
@@ -320,6 +313,7 @@ class StructuralCompiler:
                 "Path": node.normalized_path,
                 "Content": node.text,
                 "TopologicalParity": -1 if node.in_table or node.in_textbox else 1,
+                "RemediationHistory": [],
             }
 
             if state != "Quarantined":
@@ -357,7 +351,6 @@ def coalesce_atoms(
             text1 = current_node.get("Content", "")
             text2 = next_node.get("Content", "")
 
-            # Dewey Interval Range Calculation
             start_dewey = current_node["DeweyID"].split("-")[0]
             end_dewey = next_node["DeweyID"].split("-")[-1]
             current_node["DeweyID"] = f"{start_dewey}-{end_dewey}"
@@ -403,6 +396,9 @@ def export_to_json_ld_dict(
             "trace:semanticState": atom["State"],
             "trace:topologicalParity": atom["TopologicalParity"],
         }
+
+        if atom.get("RemediationHistory"):
+            ld_node["trace:remediationHistory"] = atom["RemediationHistory"]
 
         if atom.get("ParentID"):
             ld_node["trace:hasParent"] = {"@id": atom["ParentID"]}
@@ -499,6 +495,9 @@ def main() -> None:
         "Audit Mode", ["Single SOP Audit", "Template vs. Variant"], horizontal=True
     )
 
+    if "processed_data" not in st.session_state:
+        st.session_state.processed_data = {}
+
     processed: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
 
     if mode == "Single SOP Audit":
@@ -510,14 +509,16 @@ def main() -> None:
         )
         if uploaded_files:
             for file in uploaded_files:
-                compiler = StructuralCompiler(file, file.name)
-                root = compiler.build_dag("word/document.xml")
-                ledger: Dict[str, List[Dict[str, Any]]] = {
-                    "Validated": [],
-                    "Quarantined": [],
-                }
-                compiler.bifurcate(root, ledger)
-                processed[file.name] = ledger
+                if file.name not in st.session_state.processed_data:
+                    compiler = StructuralCompiler(file, file.name)
+                    root = compiler.build_dag("word/document.xml")
+                    ledger: Dict[str, List[Dict[str, Any]]] = {
+                        "Validated": [],
+                        "Quarantined": [],
+                        "Pruned": [],
+                    }
+                    compiler.bifurcate(root, ledger)
+                    st.session_state.processed_data[file.name] = ledger
 
     elif mode == "Template vs. Variant":
         col1, col2 = st.columns(2)
@@ -530,16 +531,16 @@ def main() -> None:
 
         if ref_file and var_files:
             for file in [ref_file] + var_files:
-                compiler = StructuralCompiler(file, file.name)
-                root = compiler.build_dag("word/document.xml")
-                ledger: Dict[str, List[Dict[str, Any]]] = {
-                    "Validated": [],
-                    "Quarantined": [],
-                }
-                compiler.bifurcate(root, ledger)
-                processed[file.name] = ledger
-
-    st.session_state.processed_data = processed
+                if file.name not in st.session_state.processed_data:
+                    compiler = StructuralCompiler(file, file.name)
+                    root = compiler.build_dag("word/document.xml")
+                    ledger: Dict[str, List[Dict[str, Any]]] = {
+                        "Validated": [],
+                        "Quarantined": [],
+                        "Pruned": [],
+                    }
+                    compiler.bifurcate(root, ledger)
+                    st.session_state.processed_data[file.name] = ledger
 
     # Inspection View
     if st.session_state.processed_data:
@@ -552,6 +553,7 @@ def main() -> None:
         file_ledger = st.session_state.processed_data[selected_file]
         raw_validated = file_ledger["Validated"]
         quarantined_data = file_ledger["Quarantined"]
+        pruned_data = file_ledger.get("Pruned", [])
 
         # Apply Coalescing based on toggle configuration
         display_validated = (
@@ -567,7 +569,7 @@ def main() -> None:
         m1.metric("Display Atoms", len(display_validated))
         m2.metric("Raw Structural Atoms", len(raw_validated))
         m3.metric("Quarantined Anomalies", len(quarantined_data))
-        total_atoms: int = len(raw_validated) + len(quarantined_data)
+        total_atoms: int = len(raw_validated) + len(quarantined_data) + len(pruned_data)
         governance_rate: float = (
             (len(raw_validated) / total_atoms * 100) if total_atoms > 0 else 0.0
         )
@@ -588,7 +590,6 @@ def main() -> None:
                 df = pd.DataFrame(display_validated)
                 df["Category"] = df["Style"].apply(get_semantic_rank)
 
-                # Topological Pulse Plot mapped to Dewey Coordinate Sequence
                 chart = (
                     alt.Chart(df)
                     .mark_circle(size=95)
@@ -665,19 +666,55 @@ def main() -> None:
 
             st.divider()
 
-            st.subheader("Vector Quarantine Isolation Audit")
+            # --- Section-Scoped Quarantine Remediation UI ---
+            st.subheader("Vector Quarantine Isolation & Scoped Remediation")
             if quarantined_data:
                 st.error(
                     f"Quarantine Containment: {len(quarantined_data)} semantic or visual anomalies isolated."
                 )
-                df_quarantine = pd.DataFrame(quarantined_data)
+
+                # Extract unique quarantine subtrees/sections
+                quarantine_prefixes = sorted(list(set([a["DeweyID"].split(".")[0] for a in quarantined_data])))
+                
+                selected_prefix = st.selectbox(
+                    "Select Section Subtree / Dewey Coordinate Root to Remediate:",
+                    quarantine_prefixes,
+                    format_func=lambda p: f"Section Subtree (Dewey Root: {p}.x)"
+                )
+
+                scoped_items = [a for a in quarantined_data if a["DeweyID"].startswith(f"{selected_prefix}.")]
+
+                st.caption(f"Displaying {len(scoped_items)} quarantined atoms within Subtree Root `{selected_prefix}`:")
+                df_scoped = pd.DataFrame(scoped_items)
                 st.dataframe(
-                    df_quarantine[["DeweyID", "Style", "StyleDeltaMagnitude", "Content", "State"]],
+                    df_scoped[["DeweyID", "Style", "StyleDeltaMagnitude", "Content", "State"]],
                     use_container_width=True,
                 )
-                st.json(quarantined_data)
+
+                col_approve, col_reject, _ = st.columns([1, 1, 2])
+
+                with col_approve:
+                    if st.button("Approve & Restore Subtree", type="primary"):
+                        for item in scoped_items:
+                            quarantined_data.remove(item)
+                            item["State"] = "Repaired_Validated"
+                            item["RemediationHistory"].append({"action": "Approved", "timestamp": "2026-08-13"})
+                            raw_validated.append(item)
+                        st.success(f"Subtree {selected_prefix} approved and restored to active graph.")
+                        st.rerun()
+
+                with col_reject:
+                    if st.button("Reject & Suppress Subtree"):
+                        for item in scoped_items:
+                            quarantined_data.remove(item)
+                            item["State"] = "Pruned"
+                            item["RemediationHistory"].append({"action": "Rejected", "timestamp": "2026-08-13"})
+                            pruned_data.append(item)
+                        st.warning(f"Subtree {selected_prefix} pruned and suppressed with deterministic fallback.")
+                        st.rerun()
+
             else:
-                st.success("Zero anomalies detected. Document fully compliant with baseline origin.")
+                st.success("Zero anomalies detected in quarantine. Baseline compliant.")
 
         with tab5:
             json_ld_dict = export_to_json_ld_dict(selected_file, display_validated)
