@@ -709,11 +709,17 @@ def render_query_distribution(df: pd.DataFrame) -> None:
         count='count()',
         groupby=['ValidationQuery']
     ).properties(
+        width=350,
         height=320,
         title="Node Volume per Resolution Rule"
+    ).configure(
+        padding={"left": 30, "right": 20, "top": 20, "bottom": 20}
     )
     
-    st.altair_chart(distribution_chart, use_container_width=True)
+    # Wrapped inside structural columns to prevent full-width edge clipping on the canvas
+    col_chart, col_spacer = st.columns([2, 1])
+    with col_chart:
+        st.altair_chart(distribution_chart, use_container_width=True)
 
 
 def render_audit_trail(df: pd.DataFrame, cols_to_show: List[str]) -> None:
@@ -901,7 +907,7 @@ def main() -> None:
                 df = pd.DataFrame(display_validated)
                 df["Category"] = df["Style"].apply(get_semantic_rank)
 
-                # 1. Macro Donut Chart
+                # 1. Macro Donut Chart (with column layout encapsulation)
                 render_query_distribution(df)
                 
                 st.divider()
