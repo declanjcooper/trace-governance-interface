@@ -1,9 +1,9 @@
 """
-Chestnut TRACE: Comparative Governance Engine (v5.0 - Fully Structural Graph Edition)
+Chestnut TRACE: Comparative Governance Engine (v5.0.1 - Hardened Structural Graph Edition)
 Adaptive Multi-Persona Governance Engine with Parameterized Node Coalescing,
 Explicit Tabular Matrix Coordinates, Atom Boundary Repair, Clean Vector Text Streams,
 Section-Scoped Subtree Remediation, Multi-Part Document Ingestion, & Downstream Post-Quarantine Rendering.
-Includes MIMD Dual-Stream Parallel Execution & Reconciliation Engine.
+Includes MIMD Dual-Stream Parallel Execution & Reconciliation Engine with Precise OOXML Text Targetters.
 """
 
 from concurrent.futures import ThreadPoolExecutor
@@ -159,7 +159,7 @@ class ResolutionMatrix:
 
 
 class ContentWorkerStreamA:
-    """Stream A Worker: Instruction set focused strictly on text extraction, tab delimiters, & token hygiene."""
+    """Stream A Worker: Instruction set focused strictly on precise OOXML text extraction, tab delimiters, & token hygiene."""
 
     @staticmethod
     def _clean_formatting_noise(text: str) -> str:
@@ -176,8 +176,8 @@ class ContentWorkerStreamA:
             raw_text = ""
             if tag == "tab":
                 raw_text = "\t"
-            elif elem.text:
-                raw_text = elem.text
+            elif tag == "t":
+                raw_text = elem.text or ""
 
             clean_text = self._clean_formatting_noise(raw_text)
             content_map[path_id] = {
@@ -716,7 +716,6 @@ def render_query_distribution(df: pd.DataFrame) -> None:
         padding={"left": 30, "right": 20, "top": 20, "bottom": 20}
     )
     
-    # Wrapped inside structural columns to prevent full-width edge clipping on the canvas
     col_chart, col_spacer = st.columns([2, 1])
     with col_chart:
         st.altair_chart(distribution_chart, use_container_width=True)
@@ -907,12 +906,10 @@ def main() -> None:
                 df = pd.DataFrame(display_validated)
                 df["Category"] = df["Style"].apply(get_semantic_rank)
 
-                # 1. Macro Donut Chart (with column layout encapsulation)
                 render_query_distribution(df)
                 
                 st.divider()
                 
-                # 2. Linear Dewey Sequence Scatter Plot
                 st.subheader("Topological Sequence Pulse Graph (Linear View)")
                 chart = (
                     alt.Chart(df)
