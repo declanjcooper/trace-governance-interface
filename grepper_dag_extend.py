@@ -697,6 +697,65 @@ def to_markdown(validated_ledger_data: List[Dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+# --- Visual Integration Components ---
+
+def render_query_distribution(df: pd.DataFrame) -> None:
+    """Renders a donut chart showing the volume of data atoms resolved by each specific query."""
+    st.subheader("Deterministic Resolution Distribution")
+    
+    if "ValidationQuery" not in df.columns:
+        return
+
+    # Aggregate counts per query pattern
+    distribution_chart = alt.Chart(df).mark_arc(innerRadius=60, stroke="#fff").encode(
+        theta=alt.Theta(field="count", type="quantitative"),
+        color=alt.Color(
+            field="ValidationQuery", 
+            type="nominal", 
+            legend=alt.Legend(title="Trigger Query", orient="right", labelLimit=300)
+        ),
+        tooltip=[
+            alt.Tooltip('ValidationQuery:N', title='Query Logic'),
+            alt.Tooltip('count:Q', title='Nodes Captured')
+        ]
+    ).transform_aggregate(
+        count='count()',
+        groupby=['ValidationQuery']
+    ).properties(
+        height=350,
+        title="Node Volume per Resolution Rule"
+    )
+    
+    st.altair_chart(distribution_chart, use_container_width=True)
+
+
+def render_audit_trail(df: pd.DataFrame, cols_to_show: List[str]) -> None:
+    """Builds the Validation Ledger, grouping nodes exclusively by the query that caught them."""
+    st.subheader("Validated Provenance Ledger")
+    
+    if "ValidationQuery" not in df.columns:
+        st.info("No query provenance data found in this graph.")
+        return
+
+    queries_executed = df['ValidationQuery'].dropna().unique()
+    
+    if len(queries_executed) == 0:
+        st.info("No query provenance data found in this graph.")
+        return
+
+    # Create an expander for each rule to prove exactly what it captured
+    for query in queries_executed:
+        rule_df = df[df['ValidationQuery'] == query]
+        node_count = len(rule_df)
+        
+        with st.expander(f"⚙️ Rule Executed: {query} ({node_count} nodes)"):
+            st.dataframe(
+                rule_df[cols_to_show],
+                use_container_width=True,
+                hide_index=True
+            )
+
+
 # --- Streamlit Engine Application ---
 
 
@@ -857,9 +916,16 @@ def main() -> None:
                 df = pd.DataFrame(display_validated)
                 df["Category"] = df["Style"].apply(get_semantic_rank)
 
+                # Integrated Donut Chart for Query Pattern Distribution
+                render_query_distribution(df)
+                
+                st.divider()
+                st.subheader("TRACE Pulse Graph")
+
+                # Integrated Pulse Graph with Shape Encoding mapping to ValidationQuery
                 chart = (
                     alt.Chart(df)
-                    .mark_circle(size=95)
+                    .mark_point(filled=True, opacity=0.8, size=95)
                     .encode(
                         x=alt.X(
                             "DeweyID:N",
@@ -877,10 +943,10 @@ def main() -> None:
                             title="Semantic Category",
                         ),
                         color=alt.Color("Category:N", legend=alt.Legend(title="Category")),
-                        size=alt.Size(
-                            "Confidence:Q",
-                            scale=alt.Scale(domain=[0.2, 1.0]),
-                            title="Collapse Confidence",
+                        shape=alt.Shape(
+                            "ValidationQuery:N",
+                            title="Resolution Rule",
+                            scale=alt.Scale(range=['circle', 'square', 'triangle-up', 'cross', 'diamond', 'triangle-down'])
                         ),
                         tooltip=[
                             "NodeID",
@@ -893,9 +959,11 @@ def main() -> None:
                             "InferredCategory",
                             "ExtractedDates",
                             "CleanContent",
+                            "ValidationQuery",
+                            "Confidence"
                         ],
                     )
-                    .properties(height=380)
+                    .properties(height=450)
                     .interactive()
                 )
                 st.altair_chart(chart, use_container_width=True)
@@ -914,7 +982,6 @@ def main() -> None:
                 "ColumnIndex",
                 "InferredCategory",
                 "ExtractedDates",
-                "ValidationQuery",
             ]
 
             if show_node_ids:
@@ -922,7 +989,8 @@ def main() -> None:
             if show_vector_details:
                 cols_to_show += ["DeweyDepth", "StyleDeltaMagnitude", "Path", "TopologicalParity", "Confidence", "State"]
 
-            st.dataframe(df_ledger[cols_to_show], use_container_width=True)
+            # Integrated Audit Trail Overlay Grouped by Executed Logic
+            render_audit_trail(df_ledger, cols_to_show)
 
         with tab4:
             st.subheader("Auxiliary Container Audit")
@@ -960,7 +1028,7 @@ def main() -> None:
                 st.caption(f"Displaying {len(scoped_items)} quarantined atoms within Subtree Root `{selected_prefix}`:")
                 df_scoped = pd.DataFrame(scoped_items)
                 st.dataframe(
-                    df_scoped[["DeweyID", "Style", "StyleDeltaMagnitude", "CleanContent", "State"]],
+                    df_scoped[["DeweyID", "Style", "StyleDeltaMagnitude", "CleanContent", "State", "ValidationQuery"]],
                     use_container_width=True,
                 )
 
