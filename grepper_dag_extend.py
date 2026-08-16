@@ -111,26 +111,31 @@ class ResolutionMatrix:
 
     def collapse(
         self, node: ChestnutNode, max_style_delta_threshold: float = 6.0
-    ) -> Tuple[str, float]:
+    ) -> Tuple[str, float, str]:
         style_lower: str = node.style_id.lower()
         path_lower: str = node.normalized_path.lower()
         text_lower: str = node.text.lower()
 
         # 1. Semantic Anomaly Check (ΔDm) — High-priority Quarantine
-        if any(trigger in text_lower for trigger in self.ANOMALY_TRIGGERS):
-            return "Quarantined", 0.9900
+        for trigger in self.ANOMALY_TRIGGERS:
+            if trigger in text_lower:
+                query = f"MATCH (n) WHERE toLower(n.text) CONTAINS '{trigger}' SET n.state = 'Quarantined'"
+                return "Quarantined", 0.9900, query
 
         # 2. Native Headings — Intended Displacements
         if any(h in style_lower for h in ["heading", "title", "subtitle"]):
-            return "Native_Heading", 0.9500
+            query = "MATCH (n) WHERE toLower(n.style) CONTAINS 'heading' SET n.state = 'Native_Heading'"
+            return "Native_Heading", 0.9500, query
 
         # 3. Native Tabular / Virtual Layout Grid
         if node.in_table or node.has_virtual_tab:
-            return "Native_Tabular", 0.9436
+            query = "MATCH (n) WHERE n.in_table = true OR n.has_virtual_tab = true SET n.state = 'Native_Tabular'"
+            return "Native_Tabular", 0.9436, query
 
         # 4. Extreme Style Displacement Quarantine (ΔDt)
         if node.style_vector.magnitude() > max_style_delta_threshold:
-            return "Quarantined", 0.9200
+            query = f"MATCH (n) WHERE n.styleDelta > {max_style_delta_threshold} SET n.state = 'Quarantined'"
+            return "Quarantined", 0.9200, query
 
         # 5. Auxiliary Container Catch-All
         is_auxiliary: bool = (
@@ -142,10 +147,12 @@ class ResolutionMatrix:
             )
         )
         if is_auxiliary:
-            return "Auxiliary_Container", 0.9100
+            query = "MATCH (n) WHERE n.in_textbox = true OR n.path CONTAINS 'auxiliary' SET n.state = 'Auxiliary_Container'"
+            return "Auxiliary_Container", 0.9100, query
 
         # 6. Native Body Prose Default
-        return "Native_Prose", 0.8750
+        query = "MATCH (n) SET n.state = 'Native_Prose'"
+        return "Native_Prose", 0.8750, query
 
 
 # --- MIMD Parallel Execution Engine Streams ---
@@ -437,7 +444,7 @@ class StructuralCompiler:
         self, node: ChestnutNode, ledger: Dict[str, List[Dict[str, Any]]]
     ) -> None:
         if (node.tag == "t" or node.tag == "tab") and (node.text or node.has_virtual_tab):
-            state, confidence = self.resolution_matrix.collapse(node)
+            state, confidence, query_evidence = self.resolution_matrix.collapse(node)
 
             record: Dict[str, Any] = {
                 "NodeID": node.node_id,
@@ -460,6 +467,7 @@ class StructuralCompiler:
                 "InferredCategory": node.inferred_category,
                 "ExtractedDates": node.extracted_dates,
                 "TopologicalParity": -1 if node.in_table or node.in_textbox else 1,
+                "ValidationQuery": query_evidence,
                 "RemediationHistory": [],
             }
 
@@ -604,6 +612,7 @@ def export_to_json_ld_dict(
             "trace:collapseConfidence": atom["Confidence"],
             "trace:semanticState": atom["State"],
             "trace:topologicalParity": atom["TopologicalParity"],
+            "prov:wasGeneratedBy": atom.get("ValidationQuery"),
         }
 
         if atom.get("RowIndex") is not None:
@@ -898,7 +907,15 @@ def main() -> None:
 
         with tab3:
             df_ledger = pd.DataFrame(display_validated)
-            cols_to_show = ["CleanContent", "Style", "RowIndex", "ColumnIndex", "InferredCategory", "ExtractedDates"]
+            cols_to_show = [
+                "CleanContent",
+                "Style",
+                "RowIndex",
+                "ColumnIndex",
+                "InferredCategory",
+                "ExtractedDates",
+                "ValidationQuery",
+            ]
 
             if show_node_ids:
                 cols_to_show = ["DeweyID", "DeltaDewey", "NodeID", "ParentID"] + cols_to_show
@@ -954,7 +971,7 @@ def main() -> None:
                         for item in scoped_items:
                             quarantined_data.remove(item)
                             item["State"] = "Repaired_Validated"
-                            item["RemediationHistory"].append({"action": "Approved", "timestamp": "2026-08-13"})
+                            item["RemediationHistory"].append({"action": "Approved", "timestamp": "2026-08-16"})
                             raw_validated.append(item)
                         st.success(f"Subtree {selected_prefix} approved and restored to active graph.")
                         st.rerun()
@@ -964,7 +981,7 @@ def main() -> None:
                         for item in scoped_items:
                             quarantined_data.remove(item)
                             item["State"] = "Pruned"
-                            item["RemediationHistory"].append({"action": "Rejected", "timestamp": "2026-08-13"})
+                            item["RemediationHistory"].append({"action": "Rejected", "timestamp": "2026-08-16"})
                             pruned_data.append(item)
                         st.warning(f"Subtree {selected_prefix} pruned and suppressed with deterministic fallback.")
                         st.rerun()
