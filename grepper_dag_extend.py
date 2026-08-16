@@ -375,7 +375,6 @@ class StructuralCompiler:
         anchor_dewey = prefix
 
         for raw_key, topo in topology_map.items():
-            # Adjust local keys with document part prefix
             dewey_id = f"{prefix}.{raw_key}" if raw_key != "1" else prefix
             node_id = self._generate_node_id(dewey_id)
 
@@ -395,7 +394,6 @@ class StructuralCompiler:
                 delta_offset = dewey_id.replace(f"{anchor_dewey}.", "+")
                 delta_dewey = delta_offset if delta_offset.startswith("+") else f"+{dewey_id}"
 
-            # Calculate Style Displacement Vector
             style_vector = StyleDisplacementVector()
             if "heading 1" in resolved_style.lower():
                 style_vector.size_offset_pt = 9.0
@@ -429,7 +427,6 @@ class StructuralCompiler:
 
             nodes_dict[raw_key] = node
 
-        # Build DAG Hierarchy Connections
         for raw_key, node in nodes_dict.items():
             if raw_key != "1":
                 parent_key = ".".join(raw_key.split(".")[:-1])
@@ -486,7 +483,6 @@ class StructuralCompiler:
 def coalesce_atoms(
     atoms: List[Dict[str, Any]], strict_parent_matching: bool = True
 ) -> List[Dict[str, Any]]:
-    """Coalesces adjacent sibling atoms, repairs broken word boundaries, and aggregates explicit table metadata."""
     if not atoms:
         return []
 
@@ -542,15 +538,12 @@ def coalesce_atoms(
 
 
 class TemplateCompareEngine:
-    """Evaluates Variant graph payloads against a Master Template graph to verify integrity & compute token deltas."""
-
     def __init__(self, ref_ledger: Dict[str, List[Dict[str, Any]]], var_ledger: Dict[str, List[Dict[str, Any]]]) -> None:
         self.ref_atoms = ref_ledger["Validated"]
         self.var_atoms = var_ledger["Validated"]
         self.var_quarantine = var_ledger["Quarantined"]
 
     def execute_preflight_check(self) -> Dict[str, Any]:
-        """Runs pre-flight comparison: topological drift, structural completeness, and token savings metrics."""
         ref_headings = {a["Content"].strip().lower() for a in self.ref_atoms if a["State"] == "Native_Heading"}
         var_headings = {a["Content"].strip().lower() for a in self.var_atoms if a["State"] == "Native_Heading"}
 
@@ -654,9 +647,6 @@ def export_to_json_ld_dict(
     }
 
 
-# --- Helper & Downstream Projection Methods ---
-
-
 def get_semantic_rank(style_name: str) -> str:
     s: str = style_name.lower()
     if "heading" in s or "title" in s:
@@ -669,7 +659,6 @@ def get_semantic_rank(style_name: str) -> str:
 
 
 def to_markdown(validated_ledger_data: List[Dict[str, Any]]) -> str:
-    """Downstream Markdown Projection Engine."""
     lines: List[str] = []
     
     for item in validated_ledger_data:
@@ -682,7 +671,6 @@ def to_markdown(validated_ledger_data: List[Dict[str, Any]]) -> str:
         if not content or content in [".", ",", ";", ":", "-"]:
             continue
 
-        # Format tab delimiters visually for markdown rendering
         content = content.replace("\t", " | ")
 
         if "heading 1" in style:
@@ -701,12 +689,11 @@ def to_markdown(validated_ledger_data: List[Dict[str, Any]]) -> str:
 
 def render_query_distribution(df: pd.DataFrame) -> None:
     """Renders a donut chart showing the volume of data atoms resolved by each specific query."""
-    st.subheader("Deterministic Resolution Distribution")
+    st.subheader("Macro Resolution Distribution")
     
     if "ValidationQuery" not in df.columns:
         return
 
-    # Aggregate counts per query pattern
     distribution_chart = alt.Chart(df).mark_arc(innerRadius=60, stroke="#fff").encode(
         theta=alt.Theta(field="count", type="quantitative"),
         color=alt.Color(
@@ -722,7 +709,7 @@ def render_query_distribution(df: pd.DataFrame) -> None:
         count='count()',
         groupby=['ValidationQuery']
     ).properties(
-        height=350,
+        height=320,
         title="Node Volume per Resolution Rule"
     )
     
@@ -730,7 +717,6 @@ def render_query_distribution(df: pd.DataFrame) -> None:
 
 
 def render_audit_trail(df: pd.DataFrame, cols_to_show: List[str]) -> None:
-    """Builds the Validation Ledger, grouping nodes exclusively by the query that caught them."""
     st.subheader("Validated Provenance Ledger")
     
     if "ValidationQuery" not in df.columns:
@@ -743,7 +729,6 @@ def render_audit_trail(df: pd.DataFrame, cols_to_show: List[str]) -> None:
         st.info("No query provenance data found in this graph.")
         return
 
-    # Create an expander for each rule to prove exactly what it captured
     for query in queries_executed:
         rule_df = df[df['ValidationQuery'] == query]
         node_count = len(rule_df)
@@ -916,13 +901,13 @@ def main() -> None:
                 df = pd.DataFrame(display_validated)
                 df["Category"] = df["Style"].apply(get_semantic_rank)
 
-                # Integrated Donut Chart for Query Pattern Distribution
+                # 1. Macro Donut Chart
                 render_query_distribution(df)
                 
                 st.divider()
-                st.subheader("TRACE Pulse Graph")
-
-                # Integrated Pulse Graph with Shape Encoding mapping to ValidationQuery
+                
+                # 2. Linear Dewey Sequence Scatter Plot
+                st.subheader("Topological Sequence Pulse Graph (Linear View)")
                 chart = (
                     alt.Chart(df)
                     .mark_point(filled=True, opacity=0.8, size=95)
@@ -963,7 +948,7 @@ def main() -> None:
                             "Confidence"
                         ],
                     )
-                    .properties(height=450)
+                    .properties(height=420)
                     .interactive()
                 )
                 st.altair_chart(chart, use_container_width=True)
@@ -989,7 +974,6 @@ def main() -> None:
             if show_vector_details:
                 cols_to_show += ["DeweyDepth", "StyleDeltaMagnitude", "Path", "TopologicalParity", "Confidence", "State"]
 
-            # Integrated Audit Trail Overlay Grouped by Executed Logic
             render_audit_trail(df_ledger, cols_to_show)
 
         with tab4:
