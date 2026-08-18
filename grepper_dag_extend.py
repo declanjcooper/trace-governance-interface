@@ -1,9 +1,9 @@
 """
-Chestnut TRACE: Comparative Governance Engine (v5.0.3 - Dynamic Fail-Closed Edition)
+Chestnut TRACE: Comparative Governance Engine (v5.0.4 - Interactive UI Review Edition)
 Adaptive Multi-Persona Governance Engine with Parameterized Node Coalescing,
 Explicit Tabular Matrix Coordinates, Atom Boundary Repair, Clean Vector Text Streams,
 Section-Scoped Subtree Remediation, Multi-Part Document Ingestion, Downstream Post-Quarantine Rendering,
-& SIMD-Accelerated Parallel Stream C (Provenance & Revision Auditor).
+& Interactive UI-Driven Provenance & Revision Override Layer.
 """
 
 from concurrent.futures import ThreadPoolExecutor
@@ -83,8 +83,8 @@ class ChestnutNode:
     inferred_category: Optional[str] = None
     extracted_dates: List[str] = field(default_factory=list)
     
-    # Provenance & Revision Tracking Attributes (Stream C)
-    provenance_state: str = "AI_GENERATED"  # AI_GENERATED, AI_EDITED_HUMAN_REVIEWED, HUMAN_EDITED
+    # Provenance & Revision Tracking Attributes (UI Override Layer)
+    provenance_state: str = "AI_GENERATED"  # AI_GENERATED, HUMAN_EDITED_APPROVED, HUMAN_REJECTED
     originator: str = "AI_Assistant"
     editor: Optional[str] = None
     approver: Optional[str] = None
@@ -164,7 +164,7 @@ class ResolutionMatrix:
         return "Native_Prose", 0.8750, query
 
 
-# --- MIMD Parallel Execution Engine Streams ---
+# --- Parallel Execution Engine Streams ---
 
 
 class ContentWorkerStreamA:
@@ -313,54 +313,8 @@ class TopologyWorkerStreamB:
         return topology_map
 
 
-class ProvenanceWorkerStreamC:
-    """Stream C SIMD-Accelerated Worker: Instruction set focused on parallel chunk scanning of revision metadata, w:ins, w:del, & author provenance tags."""
-
-    @staticmethod
-    def process_vectorized_bytes(xml_bytes: bytes) -> Dict[str, Dict[str, Any]]:
-        """Simulates SIMD vector-chunk byte scanning over raw OOXML package bytes for rapid revision extraction."""
-        provenance_map = {}
-        
-        ins_matches = list(re.finditer(b'<w:ins\b([^>]*)>', xml_bytes))
-        del_matches = list(re.finditer(b'<w:del\b([^>]*)>', xml_bytes))
-        
-        for match in ins_matches:
-            attrs = match.group(1).decode('utf-8', errors='ignore')
-            author_match = re.search(r'w:author="([^"]+)"', attrs)
-            date_match = re.search(r'w:date="([^"]+)"', attrs)
-            
-            author = author_match.group(1) if author_match else "Unknown_Editor"
-            timestamp = date_match.group(1) if date_match else None
-            
-            provenance_map[match.start()] = {
-                "provenance_state": "HUMAN_EDITED",
-                "originator": "AI_Assistant",
-                "editor": author,
-                "timestamp": timestamp,
-                "has_human_edits": True
-            }
-
-        for match in del_matches:
-            attrs = match.group(1).decode('utf-8', errors='ignore')
-            author_match = re.search(r'w:author="([^"]+)"', attrs)
-            date_match = re.search(r'w:date="([^"]+)"', attrs)
-            
-            author = author_match.group(1) if author_match else "Unknown_Editor"
-            timestamp = date_match.group(1) if date_match else None
-            
-            provenance_map[match.start()] = {
-                "provenance_state": "HUMAN_EDITED",
-                "originator": "AI_Assistant",
-                "editor": author,
-                "timestamp": timestamp,
-                "has_human_edits": True
-            }
-
-        return provenance_map
-
-
 class StructuralCompiler:
-    """MIMD Master Compiler: Orchestrates Stream A, Stream B, and SIMD Stream C parallel execution threads and reconciles outputs."""
+    """MIMD Master Compiler: Orchestrates Stream A and Stream B parallel threads and compiles DAG."""
 
     def __init__(self, doc_file: Any, doc_name: str) -> None:
         self.doc_name: str = doc_name
@@ -403,18 +357,15 @@ class StructuralCompiler:
 
                     worker_a = ContentWorkerStreamA()
                     worker_b = TopologyWorkerStreamB()
-                    worker_c = ProvenanceWorkerStreamC()
 
-                    with ThreadPoolExecutor(max_workers=3) as executor:
+                    with ThreadPoolExecutor(max_workers=2) as executor:
                         future_a = executor.submit(worker_a.process, root_elem)
                         future_b = executor.submit(worker_b.process, root_elem, self.styles)
-                        future_c = executor.submit(worker_c.process_vectorized_bytes, xml_bytes)
 
                         content_map = future_a.result()
                         topology_map = future_b.result()
-                        provenance_map = future_c.result()
 
-                    dag_root = self._reconcile_streams(prefix, content_map, topology_map, provenance_map)
+                    dag_root = self._reconcile_streams(prefix, content_map, topology_map)
                     roots.append(dag_root)
 
             except Exception:
@@ -423,21 +374,10 @@ class StructuralCompiler:
         return roots
 
     def _reconcile_streams(
-        self, prefix: str, content_map: Dict[str, Dict[str, str]], topology_map: Dict[str, Dict[str, Any]], provenance_map: Dict[int, Dict[str, Any]]
+        self, prefix: str, content_map: Dict[str, Dict[str, str]], topology_map: Dict[str, Dict[str, Any]]
     ) -> ChestnutNode:
         nodes_dict: Dict[str, ChestnutNode] = {}
         anchor_dewey = prefix
-
-        prov_state = "AI_GENERATED"
-        editor = None
-        timestamp = None
-        has_edits = False
-        if provenance_map:
-            first_prov = next(iter(provenance_map.values()))
-            prov_state = first_prov["provenance_state"]
-            editor = first_prov["editor"]
-            timestamp = first_prov["timestamp"]
-            has_edits = first_prov["has_human_edits"]
 
         for raw_key, topo in topology_map.items():
             dewey_id = f"{prefix}.{raw_key}" if raw_key != "1" else prefix
@@ -487,12 +427,12 @@ class StructuralCompiler:
                 has_virtual_tab=topo["has_virtual_tab"],
                 inferred_category=self.current_category,
                 extracted_dates=TopologyWorkerStreamB.DATE_PATTERN.findall(clean_text),
-                provenance_state=prov_state,
+                provenance_state="AI_GENERATED",
                 originator="AI_Assistant",
-                editor=editor,
-                approver=editor if has_edits else None,
-                revision_timestamp=timestamp,
-                has_human_edits=has_edits,
+                editor=None,
+                approver=None,
+                revision_timestamp=None,
+                has_human_edits=False,
                 style_vector=style_vector,
             )
 
@@ -826,8 +766,8 @@ def render_audit_trail(df: pd.DataFrame, cols_to_show: List[str]) -> None:
             )
 
 
-def render_revision_diff_audit(df: pd.DataFrame) -> None:
-    st.subheader("Revision & Diff Audit Trail (Stream C)")
+def render_revision_diff_audit(df: pd.DataFrame, file_ledger: Dict[str, List[Dict[str, Any]]]) -> None:
+    st.subheader("Interactive Provenance & Human Review Override Layer")
     
     if "ProvenanceState" not in df.columns:
         st.info("No provenance state metadata captured.")
@@ -839,26 +779,53 @@ def render_revision_diff_audit(df: pd.DataFrame) -> None:
     m1, m2, m3 = st.columns(3)
     m1.metric("Total Atoms", len(df))
     m2.metric("AI-Generated Baseline Atoms", len(ai_df))
-    m3.metric("Human-Edited / Reviewed Atoms", len(edited_df))
+    m3.metric("Human-Reviewed / Approved Atoms", len(edited_df))
+
+    st.divider()
+
+    st.markdown("#### ✍️ Apply Human Review & Approval Override")
+    st.caption("Select specific atoms or sections below to mark them as human-reviewed, approved, or rejected for testing purposes:")
+
+    all_atoms = file_ledger["Validated"]
+    atom_options = {f"[{a['DeweyID']}] {a['Style']}: {a['CleanContent'][:50]}...": a for a in all_atoms if a.get("CleanContent", "").strip()}
+
+    if atom_options:
+        selected_label = st.selectbox("Select Atom to Override Status", list(atom_options.keys()))
+        target_atom = atom_options[selected_label]
+
+        col_rev1, col_rev2 = st.columns(2)
+        with col_rev1:
+            reviewer_name = st.text_input("Reviewer Name / ID", value="Declan Cooper")
+        with col_rev2:
+            review_action = st.selectbox("Review Decision", ["Approve & Mark Human-Reviewed", "Reject / Flag Revision"])
+
+        if st.button("Commit Review Override"):
+            target_atom["HasHumanEdits"] = True
+            target_atom["Editor"] = reviewer_name
+            target_atom["Approver"] = reviewer_name if "Approve" in review_action else None
+            target_atom["ProvenanceState"] = "HUMAN_EDITED_APPROVED" if "Approve" in review_action else "HUMAN_REJECTED"
+            target_atom["RevisionTimestamp"] = "2026-08-18 14:55:00"
+            st.success(f"Commit successful for node `{target_atom['DeweyID']}` status: `{target_atom['ProvenanceState']}`.")
+            st.rerun()
 
     st.divider()
 
     if len(edited_df) > 0:
-        st.caption("Inspecting granular human revisions, author metadata, and diff markup extracted via Stream C SIMD scanning:")
+        st.caption("Currently tracked human-reviewed and overridden atoms:")
         st.dataframe(
             edited_df[["DeweyID", "Style", "Editor", "RevisionTimestamp", "ProvenanceState", "CleanContent"]],
             use_container_width=True,
             hide_index=True
         )
     else:
-        st.success("Document matches baseline AI generation. Zero human-in-the-loop override markers detected.")
+        st.info("No interactive human review overrides applied yet. Use the selector above to test human review states.")
 
 
 # --- Streamlit Engine Application ---
 
 
 def main() -> None:
-    st.set_page_config(layout="wide", page_title="Chestnut TRACE Engine v5.0.3 (Dynamic Fail-Closed Edition)")
+    st.set_page_config(layout="wide", page_title="Chestnut TRACE Engine v5.0.4 (Interactive UI Review Edition)")
 
     st.sidebar.title("TRACE Control Surface")
 
@@ -892,7 +859,7 @@ def main() -> None:
         "Show Node IDs & Parent Links", value=default_show_ids
     )
 
-    st.title("Chestnut TRACE: Comparative Governance Engine (v5.0.3 - Dynamic Fail-Closed Edition)")
+    st.title("Chestnut TRACE: Comparative Governance Engine (v5.0.4 - Interactive UI Review Edition)")
 
     mode: str = st.radio(
         "Audit Mode", ["Single SOP Audit", "Template vs. Variant"], horizontal=True
@@ -1090,7 +1057,7 @@ def main() -> None:
 
         with tab4:
             df_ledger = pd.DataFrame(display_validated)
-            render_revision_diff_audit(df_ledger)
+            render_revision_diff_audit(df_ledger, file_ledger)
 
         with tab5:
             st.subheader("Auxiliary Container Audit")
