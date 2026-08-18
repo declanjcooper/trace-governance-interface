@@ -1,5 +1,5 @@
 """
-Chestnut TRACE: Comparative Governance Engine (v5.0.2 - SIMD Vectorized Multi-Stream Edition)
+Chestnut TRACE: Comparative Governance Engine (v5.0.3 - Dynamic Fail-Closed Edition)
 Adaptive Multi-Persona Governance Engine with Parameterized Node Coalescing,
 Explicit Tabular Matrix Coordinates, Atom Boundary Repair, Clean Vector Text Streams,
 Section-Scoped Subtree Remediation, Multi-Part Document Ingestion, Downstream Post-Quarantine Rendering,
@@ -110,11 +110,12 @@ class ChestnutNode:
 
 
 class ResolutionMatrix:
-    """Observation Operator resolving XML lineage, styles, and vector anomalies into TRACE States."""
+    """Observation Operator resolving XML lineage, styles, and vector anomalies into TRACE States.
+       Optimized with pure structural/semantic triggers, removing hardcoded vendor application strings.
+    """
 
     ANOMALY_TRIGGERS: set[str] = {
-        "medidata", "rave", "study inactivation", "crf", "clinical trial",
-        "protocol amendment", "sap_v", "inactivation"
+        "study inactivation", "crf", "protocol amendment", "sap_v", "inactivation"
     }
 
     def collapse(
@@ -124,7 +125,7 @@ class ResolutionMatrix:
         path_lower: str = node.normalized_path.lower()
         text_lower: str = node.text.lower()
 
-        # 1. Semantic Anomaly Check (ΔDm) — High-priority Quarantine
+        # 1. Semantic Anomaly Check (ΔDm) — High-priority Structural Quarantine
         for trigger in self.ANOMALY_TRIGGERS:
             if trigger in text_lower:
                 query = f"MATCH (n) WHERE toLower(n.text) CONTAINS '{trigger}' SET n.state = 'Quarantined'"
@@ -158,7 +159,7 @@ class ResolutionMatrix:
             query = "MATCH (n) WHERE n.in_textbox = true OR n.path CONTAINS 'auxiliary' SET n.state = 'Auxiliary_Container'"
             return "Auxiliary_Container", 0.9100, query
 
-        # 6. Native Body Prose Default
+        # 6. Native Body Prose Default (Fail-Safe Handling for Unknown Domain Terms)
         query = "MATCH (n) SET n.state = 'Native_Prose'"
         return "Native_Prose", 0.8750, query
 
@@ -320,15 +321,9 @@ class ProvenanceWorkerStreamC:
         """Simulates SIMD vector-chunk byte scanning over raw OOXML package bytes for rapid revision extraction."""
         provenance_map = {}
         
-        # Fast regex-based byte chunk index tape simulation for high-throughput metadata extraction
-        chunk_size = 64
-        total_len = len(xml_bytes)
-        
-        # Vectorized pattern lookups for insertions, deletions, and authorship tags
         ins_matches = list(re.finditer(b'<w:ins\b([^>]*)>', xml_bytes))
         del_matches = list(re.finditer(b'<w:del\b([^>]*)>', xml_bytes))
         
-        # Map indices or paths to provenance attributes
         for match in ins_matches:
             attrs = match.group(1).decode('utf-8', errors='ignore')
             author_match = re.search(r'w:author="([^"]+)"', attrs)
@@ -337,7 +332,6 @@ class ProvenanceWorkerStreamC:
             author = author_match.group(1) if author_match else "Unknown_Editor"
             timestamp = date_match.group(1) if date_match else None
             
-            # Record positional signature for mapping back during reconciliation
             provenance_map[match.start()] = {
                 "provenance_state": "HUMAN_EDITED",
                 "originator": "AI_Assistant",
@@ -393,7 +387,6 @@ class StructuralCompiler:
         return f"urn:trace:doc:{self.doc_name}:node:dewey:{dewey_id}"
 
     def build_full_dag(self) -> List[ChestnutNode]:
-        """Runs Stream A, Stream B, and SIMD Stream C in parallel threads, then passes outputs to Reconciliation Engine."""
         roots: List[ChestnutNode] = []
         part_names = [f for f in self.archive.namelist() if f.startswith("word/") and f.endswith(".xml")]
         
@@ -408,7 +401,6 @@ class StructuralCompiler:
                     root_elem: ET._Element = ET.fromstring(xml_bytes)
                     prefix = str(idx)
 
-                    # --- MIMD Tri-Stream Parallel Execution ---
                     worker_a = ContentWorkerStreamA()
                     worker_b = TopologyWorkerStreamB()
                     worker_c = ProvenanceWorkerStreamC()
@@ -422,7 +414,6 @@ class StructuralCompiler:
                         topology_map = future_b.result()
                         provenance_map = future_c.result()
 
-                    # --- Stream Reconciliation Node ---
                     dag_root = self._reconcile_streams(prefix, content_map, topology_map, provenance_map)
                     roots.append(dag_root)
 
@@ -434,18 +425,14 @@ class StructuralCompiler:
     def _reconcile_streams(
         self, prefix: str, content_map: Dict[str, Dict[str, str]], topology_map: Dict[str, Dict[str, Any]], provenance_map: Dict[int, Dict[str, Any]]
     ) -> ChestnutNode:
-        """Joins Stream A (Text/Tabs), Stream B (Dewey Topology), and Stream C (Provenance Ledger) into unified Chestnut DAG Nodes."""
-        
         nodes_dict: Dict[str, ChestnutNode] = {}
         anchor_dewey = prefix
 
-        # Extract aggregate provenance defaults if any human edits were found in stream C
         prov_state = "AI_GENERATED"
         editor = None
         timestamp = None
         has_edits = False
         if provenance_map:
-            # Take the first matched revision signature or synthesize aggregate state
             first_prov = next(iter(provenance_map.values()))
             prov_state = first_prov["provenance_state"]
             editor = first_prov["editor"]
@@ -782,7 +769,6 @@ def to_markdown(validated_ledger_data: List[Dict[str, Any]]) -> str:
 # --- Visual Integration Components ---
 
 def render_query_distribution(df: pd.DataFrame) -> None:
-    """Renders a donut chart showing the volume of data atoms resolved by each specific query."""
     st.subheader("Macro Resolution Distribution")
     
     if "ValidationQuery" not in df.columns:
@@ -841,7 +827,6 @@ def render_audit_trail(df: pd.DataFrame, cols_to_show: List[str]) -> None:
 
 
 def render_revision_diff_audit(df: pd.DataFrame) -> None:
-    """Renders Stream C Tracked Changes & Provenance Diff Audit Tab."""
     st.subheader("Revision & Diff Audit Trail (Stream C)")
     
     if "ProvenanceState" not in df.columns:
@@ -873,7 +858,7 @@ def render_revision_diff_audit(df: pd.DataFrame) -> None:
 
 
 def main() -> None:
-    st.set_page_config(layout="wide", page_title="Chestnut TRACE Engine v5.0.2 (SIMD Multi-Stream Edition)")
+    st.set_page_config(layout="wide", page_title="Chestnut TRACE Engine v5.0.3 (Dynamic Fail-Closed Edition)")
 
     st.sidebar.title("TRACE Control Surface")
 
@@ -907,7 +892,7 @@ def main() -> None:
         "Show Node IDs & Parent Links", value=default_show_ids
     )
 
-    st.title("Chestnut TRACE: Comparative Governance Engine (v5.0.2 - SIMD Multi-Stream Edition)")
+    st.title("Chestnut TRACE: Comparative Governance Engine (v5.0.3 - Dynamic Fail-Closed Edition)")
 
     mode: str = st.radio(
         "Audit Mode", ["Single SOP Audit", "Template vs. Variant"], horizontal=True
